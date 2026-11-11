@@ -1,53 +1,21 @@
-"""Algoritmos geométricos: convierten figuras regulares en bloques enteros.
+"""Conversión de figuras regulares en bloques enteros.
 
-Este módulo no depende de Qt. Todo lo que ve el usuario (lienzo, conteo,
-guía, PNG y JSON) se obtiene de la :class:`Figura` que generan estas funciones.
-
-Sistema de coordenadas
-----------------------
-* Cada bloque es la celda ``(x, y)`` con ``x`` = columna, ``y`` = fila,
-  ambos enteros empezando en 0 en la esquina superior izquierda de la figura.
-  La celda ocupa el cuadrado ``[x, x+1] × [y, y+1]`` en "unidades de bloque".
-  La ``y`` crece hacia abajo (como al leer una plantilla fila a fila).
-* La interfaz y los archivos muestran columnas y filas empezando en 1.
-
-Criterio de pertenencia (muestreo por centro)
----------------------------------------------
-Se construye la figura continua (círculo, triángulo o hexágono regular) con
-su tamaño exacto y se coloca sobre la cuadrícula. Una celda pertenece a la
-figura **si su centro** ``(x + 0.5, y + 0.5)`` **está dentro de la figura o
-sobre su borde**. Como las tres figuras son convexas, cada fila queda formada
-por un único tramo continuo, que se calcula de forma analítica (sin recorrer
-todas las celdas), así que el coste es proporcional al número de filas.
-
-Contorno
---------
-El contorno es el subconjunto del relleno formado por los bloques que tienen
-al menos un vecino *ortogonal* (arriba, abajo, izquierda o derecha) fuera de
-la figura. El resultado es un borde de un bloque de grosor que se une en
-diagonal en los escalones (como en las construcciones típicas de Minecraft) y
-que cierra completamente la figura: rellenar el interior del contorno da
-exactamente la figura rellena.
+Una celda (x, y) pertenece a la figura si su centro (x + 0,5, y + 0,5) cae
+dentro de la figura continua o sobre su borde. El contorno son los bloques del
+relleno con algún vecino ortogonal fuera de la figura.
 """
 
 from __future__ import annotations
 
+import itertools
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
-from typing import Callable, Iterator
-
-# --------------------------------------------------------------------------
-# Constantes y configuración
-# --------------------------------------------------------------------------
+from typing import Callable, Iterator, TypeVar
 
 TAMANO_MINIMO = 1
 TAMANO_MAXIMO = 1000
-
-#: Tolerancia para considerar que un centro situado exactamente sobre el borde
-#: pertenece a la figura (evita depender de errores de redondeo).
-EPS = 1e-9
-
+EPS = 1e-9  # incluye los centros que caen exactamente sobre el borde
 RAIZ3 = math.sqrt(3.0)
 
 FIGURAS = ("circulo", "triangulo", "hexagono")
@@ -73,10 +41,16 @@ NOMBRES_ORIENTACION = {
     "plano": "lado plano arriba",
     "vertice": "vértice arriba",
 }
-NOMBRES_MODO = {"contorno": "contorno", "relleno": "relleno"}
+MEDIDA_TAMANO = {
+    "circulo": "diámetro",
+    "triangulo": "ancho de la base",
+    "hexagono": "ancho total",
+}
 
-Tramo = tuple[int, int]  # (x_inicio, x_fin) ambos incluidos, base 0
+Tramo = tuple[int, int]
 Fila = tuple[Tramo, ...]
+SemiAncho = Callable[[float], "float | None"]
+T = TypeVar("T")
 
 
 class ErrorDeTamano(ValueError):
@@ -91,64 +65,55 @@ class Configuracion:
     modo: str = "contorno"
     color: str = "#5B8C3A"
 
-    def validada(self) -> "Configuracion":
-        """Devuelve la configuración normalizada o lanza :class:`ErrorDeTamano`."""
+    def validada(self) -> Configuracion:
         if self.figura not in FIGURAS:
             raise ErrorDeTamano(f"Figura desconocida: «{self.figura}».")
         if self.modo not in MODOS:
             raise ErrorDeTamano(f"Modo desconocido: «{self.modo}».")
-        orient = self.orientacion
-        if orient not in ORIENTACIONES[self.figura]:
-            if self.figura == "circulo":
-                orient = ""
-            else:
-                validas = ", ".join(ORIENTACIONES[self.figura])
-                raise ErrorDeTamano(
-                    f"Orientación «{orient}» no válida para {NOMBRES_FIGURA[self.figura].lower()} "
-                    f"(opciones: {validas})."
-                )
+        orientacion = self._orientacion_valida()
+        self._validar_tamano()
+        return replace(self, orientacion=orientacion, color=normalizar_color(self.color))
+
+    def _orientacion_valida(self) -> str:
+        if self.orientacion in ORIENTACIONES[self.figura]:
+            return self.orientacion
+        if self.figura == "circulo":
+            return ""
+        validas = ", ".join(ORIENTACIONES[self.figura])
+        raise ErrorDeTamano(
+            f"Orientación «{self.orientacion}» no válida para "
+            f"{NOMBRES_FIGURA[self.figura].lower()} (opciones: {validas})."
+        )
+
+    def _validar_tamano(self) -> None:
         if isinstance(self.tamano, bool) or not isinstance(self.tamano, int):
             raise ErrorDeTamano("El tamaño debe ser un número entero de bloques.")
         if not TAMANO_MINIMO <= self.tamano <= TAMANO_MAXIMO:
-            medida = MEDIDA_TAMANO[self.figura]
             raise ErrorDeTamano(
-                f"El {medida} debe estar entre {TAMANO_MINIMO} y {TAMANO_MAXIMO} bloques "
-                f"(has puesto {self.tamano})."
+                f"El {MEDIDA_TAMANO[self.figura]} debe estar entre {TAMANO_MINIMO} y "
+                f"{TAMANO_MAXIMO} bloques (has puesto {self.tamano})."
             )
-        color = normalizar_color(self.color)
-        return Configuracion(self.figura, self.tamano, orient, self.modo, color)
-
-
-MEDIDA_TAMANO = {
-    "circulo": "diámetro",
-    "triangulo": "ancho de la base",
-    "hexagono": "ancho total",
-}
 
 
 def normalizar_color(color: str) -> str:
     c = (color or "").strip()
     if not c.startswith("#"):
         c = "#" + c
-    if len(c) == 4:  # #abc -> #aabbcc
+    if len(c) == 4:
         c = "#" + "".join(ch * 2 for ch in c[1:])
     if len(c) != 7 or any(ch not in "0123456789abcdefABCDEF" for ch in c[1:]):
         raise ErrorDeTamano(f"Color no válido: «{color}». Usa el formato #RRGGBB.")
     return c.upper()
 
 
-# --------------------------------------------------------------------------
-# Resultado
-# --------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class Figura:
-    """Conjunto determinista de bloques de una figura.
+    """Bloques de una figura agrupados por filas.
 
-    ``filas[y]`` contiene los tramos ``(x0, x1)`` (incluidos) ocupados en la
-    fila ``y``. Las filas van de 0 (arriba) a ``alto - 1`` (abajo) y las
-    columnas de 0 (izquierda) a ``ancho - 1`` (derecha).
+    ``filas[y]`` son los tramos ``(x0, x1)``, con ambos extremos incluidos.
+    Filas y columnas empiezan en 0 en la esquina superior izquierda. ``centro``
+    está en unidades de bloque: x,5 es el centro de una celda y un entero es la
+    línea entre dos celdas.
     """
 
     config: Configuracion
@@ -157,22 +122,17 @@ class Figura:
     alto: int
     ancho_teorico: float
     alto_teorico: float
-    #: Centro de la figura continua en unidades de bloque (0 = borde superior
-    #: izquierdo). Si vale un entero + 0,5 cae en el centro de una celda; si es
-    #: entero cae sobre una línea de la cuadrícula (entre dos bloques).
     centro: tuple[float, float]
-    #: Relleno completo (útil para el modo contorno: el interior es relleno − contorno).
-    filas_relleno: tuple[Fila, ...] = field(repr=False, default=())
+    filas_relleno: tuple[Fila, ...] = field(repr=False)
 
     @cached_property
     def total(self) -> int:
-        return sum(x1 - x0 + 1 for fila in self.filas for x0, x1 in fila)
+        return sum(self.bloques_por_fila())
 
     def bloques_por_fila(self) -> list[int]:
         return [sum(x1 - x0 + 1 for x0, x1 in fila) for fila in self.filas]
 
     def iter_celdas(self) -> Iterator[tuple[int, int]]:
-        """Recorre los bloques en orden (fila, columna)."""
         for y, fila in enumerate(self.filas):
             for x0, x1 in fila:
                 for x in range(x0, x1 + 1):
@@ -193,258 +153,185 @@ class Figura:
 
     @property
     def lado_plano(self) -> int | None:
-        """Bloques del lado recto principal del hexágono (None para otras figuras).
-
-        * Lado plano arriba: longitud de la fila superior.
-        * Vértice arriba: número de filas que ocupan todo el ancho (lados verticales).
-        """
+        """Bloques de la fila superior (lado plano arriba) o filas de ancho completo (vértice arriba)."""
         if self.config.figura != "hexagono":
             return None
-        relleno = self.filas_relleno or self.filas
         if self.config.orientacion == "plano":
-            x0, x1 = relleno[0][0]
+            x0, x1 = self.filas_relleno[0][0]
             return x1 - x0 + 1
-        return sum(1 for f in relleno if f and f[0][0] == 0 and f[-1][1] == self.ancho - 1)
+        ancho_completo = ((0, self.ancho - 1),)
+        return sum(1 for fila in self.filas_relleno if fila == ancho_completo)
 
 
-# --------------------------------------------------------------------------
-# Utilidades de rasterizado
-# --------------------------------------------------------------------------
+@dataclass(frozen=True)
+class _Rasterizado:
+    filas: list[Tramo]
+    ancho: int
+    ancho_teorico: float
+    alto_teorico: float
+    centro: tuple[float, float]
 
 
-def _tramo_centrado(cx: float, semiancho: float) -> Tramo | None:
-    """Columnas cuyo centro (x + 0,5) cae en [cx − semiancho, cx + semiancho]."""
-    if semiancho < -EPS:
+def _tramo_centrado(cx: float, semiancho: float | None) -> Tramo | None:
+    """Columnas cuyo centro cae en [cx − semiancho, cx + semiancho]."""
+    if semiancho is None or semiancho < -EPS:
         return None
     x0 = math.ceil(cx - semiancho - 0.5 - EPS)
     x1 = math.floor(cx + semiancho - 0.5 + EPS)
-    if x0 > x1:
-        return None
-    return (x0, x1)
+    return (x0, x1) if x0 <= x1 else None
 
 
-def _filas_simetricas(
-    ancho: int,
-    semiancho: Callable[[float], float | None],
-    alto_teorico: float,
-) -> tuple[list[Tramo], float]:
-    """Rasteriza una figura convexa con simetría vertical y horizontal.
-
-    ``semiancho(dy)`` da la mitad del ancho de la figura continua a una
-    distancia vertical ``dy >= 0`` de su centro (o ``None`` si queda fuera).
-
-    El centro horizontal está fijado en ``ancho / 2`` (el ancho exacto). El
-    centro vertical puede caer en el centro de una fila (alto impar) o en la
-    línea entre dos filas (alto par). Se prueban ambas opciones y se elige la
-    que deja un alto en bloques más próximo al alto teórico; en caso de empate,
-    la de alto impar (tiene una fila central clara).
-    """
-    cx = ancho / 2.0
-    candidatos: list[tuple[float, int, list[Tramo]]] = []
-    for impar in (True, False):
-        # Distancias de los centros de fila al centro: 0, 1, 2… o 0,5, 1,5…
-        mitad: list[Tramo] = []
-        k = 0
-        while True:
-            dy = k if impar else k + 0.5
-            s = semiancho(dy)
-            tramo = _tramo_centrado(cx, s) if s is not None else None
-            if tramo is None:
-                break
-            mitad.append(tramo)
-            k += 1
-        if not mitad:
-            continue
-        if impar:
-            filas = list(reversed(mitad[1:])) + mitad
-        else:
-            filas = list(reversed(mitad)) + mitad
-        alto = len(filas)
-        candidatos.append((abs(alto - alto_teorico), 0 if impar else 1, filas))
-    if not candidatos:
-        raise ErrorDeTamano("La figura es demasiado pequeña para ocupar algún bloque.")
-    candidatos.sort(key=lambda c: (c[0], c[1]))
-    filas = candidatos[0][2]
-    return filas, len(filas) / 2.0
-
-
-def _contorno(filas: list[Tramo | None]) -> list[Fila]:
-    """Bloques del relleno con algún vecino ortogonal fuera de la figura.
-
-    ``filas`` tiene un único tramo por fila (figuras convexas). Para cada
-    fila, el interior es el tramo de bloques cuyos cuatro vecinos están en la
-    figura: ``[max(x0+1, x0_arriba, x0_abajo), min(x1−1, x1_arriba, x1_abajo)]``.
-    El contorno es la fila menos ese interior (uno o dos tramos).
-    """
-    resultado: list[Fila] = []
-    n = len(filas)
-    for y, tramo in enumerate(filas):
+def _apilar(semiancho_de_fila: Callable[[int], float | None], cx: float) -> list[Tramo]:
+    """Tramos de las filas k = 0, 1, 2… hasta la primera que queda vacía."""
+    tramos: list[Tramo] = []
+    for k in itertools.count():
+        tramo = _tramo_centrado(cx, semiancho_de_fila(k))
         if tramo is None:
-            resultado.append(())
+            return tramos
+        tramos.append(tramo)
+    raise AssertionError("inalcanzable")
+
+
+def _mas_cercano(candidatos: list[tuple[list[Tramo], T]], alto_teorico: float) -> tuple[list[Tramo], T]:
+    """Colocación con el alto más próximo al teórico; en empate gana la primera."""
+    validos = [c for c in candidatos if c[0]]
+    if not validos:
+        raise ErrorDeTamano("La figura es demasiado pequeña para ocupar algún bloque.")
+    return min(validos, key=lambda c: abs(len(c[0]) - alto_teorico))
+
+
+def _filas_simetricas(ancho: int, semiancho: SemiAncho, alto_teorico: float) -> list[Tramo]:
+    """Prueba el centro sobre una fila (alto impar) y entre dos filas (alto par)."""
+    cx = ancho / 2
+    mitad_impar = _apilar(lambda k: semiancho(k), cx)
+    mitad_par = _apilar(lambda k: semiancho(k + 0.5), cx)
+    impar = mitad_impar[:0:-1] + mitad_impar
+    par = mitad_par[::-1] + mitad_par
+    filas, _ = _mas_cercano([(impar, None), (par, None)], alto_teorico)
+    return filas
+
+
+def _contorno(filas: list[Tramo]) -> list[Fila]:
+    """Quita de cada fila su interior: los bloques con los cuatro vecinos dentro."""
+    ultima = len(filas) - 1
+    contorno: list[Fila] = []
+    for y, (x0, x1) in enumerate(filas):
+        if y in (0, ultima):
+            contorno.append(((x0, x1),))
             continue
-        x0, x1 = tramo
-        arriba = filas[y - 1] if y > 0 else None
-        abajo = filas[y + 1] if y + 1 < n else None
-        if arriba is None or abajo is None:
-            resultado.append(((x0, x1),))
-            continue
+        arriba, abajo = filas[y - 1], filas[y + 1]
         i0 = max(x0 + 1, arriba[0], abajo[0])
         i1 = min(x1 - 1, arriba[1], abajo[1])
-        if i0 > i1:
-            resultado.append(((x0, x1),))
-            continue
-        partes: list[Tramo] = []
-        if i0 > x0:
-            partes.append((x0, i0 - 1))
-        if i1 < x1:
-            partes.append((i1 + 1, x1))
-        resultado.append(tuple(partes))
-    return resultado
+        contorno.append(((x0, x1),) if i0 > i1 else ((x0, i0 - 1), (i1 + 1, x1)))
+    return contorno
 
 
 def _transponer(filas: list[Tramo], ancho: int) -> list[Tramo]:
-    """Intercambia filas y columnas de una figura convexa (una fila = un tramo)."""
-    alto = len(filas)
-    nuevas: list[Tramo] = []
+    columnas: list[Tramo] = []
     for x in range(ancho):
-        ys = [y for y in range(alto) if filas[y][0] <= x <= filas[y][1]]
-        nuevas.append((min(ys), max(ys)))
-    return nuevas
+        ys = [y for y, (x0, x1) in enumerate(filas) if x0 <= x <= x1]
+        columnas.append((min(ys), max(ys)))
+    return columnas
 
 
-# --------------------------------------------------------------------------
-# Figuras
-# --------------------------------------------------------------------------
-
-
-def _filas_circulo(diametro: int) -> tuple[list[Tramo], int, int, float, float, tuple[float, float]]:
-    r = diametro / 2.0
-    c = diametro / 2.0
-    filas: list[Tramo] = []
+def _circulo(diametro: int) -> _Rasterizado:
+    radio = centro = diametro / 2
+    filas = []
     for y in range(diametro):
-        dy = (y + 0.5) - c
-        resto = r * r - dy * dy
-        s = math.sqrt(resto) if resto > 0 else (0.0 if resto > -EPS else -1.0)
-        tramo = _tramo_centrado(c, s)
-        assert tramo is not None
-        filas.append(tramo)
-    return filas, diametro, diametro, float(diametro), float(diametro), (c, c)
+        dy = y + 0.5 - centro
+        filas.append(_tramo_centrado(centro, math.sqrt(max(radio * radio - dy * dy, 0.0))))
+    return _Rasterizado(filas, diametro, diametro, diametro, (centro, centro))
 
 
-def _filas_hexagono(ancho: int, orientacion: str):
+def _semiancho_lado_plano(ancho: int) -> SemiAncho:
+    radio = ancho / 2
+    mitad_alto = radio * RAIZ3 / 2
+
+    def semiancho(dy: float) -> float | None:
+        return None if dy > mitad_alto + EPS else radio - dy / RAIZ3
+
+    return semiancho
+
+
+def _semiancho_vertice_arriba(ancho: int) -> SemiAncho:
+    apotema = ancho / 2
+    radio = ancho / RAIZ3
+
+    def semiancho(dy: float) -> float | None:
+        if dy > radio + EPS:
+            return None
+        return apotema if dy <= radio / 2 else (radio - dy) * RAIZ3
+
+    return semiancho
+
+
+def _hexagono(ancho: int, orientacion: str) -> _Rasterizado:
     if orientacion == "plano":
-        # Lado plano arriba: vértices a izquierda y derecha. Ancho = 2R.
-        radio = ancho / 2.0
-        alto_teorico = ancho * RAIZ3 / 2.0
-        mitad_alto = alto_teorico / 2.0
-
-        def semiancho(dy: float) -> float | None:
-            if dy > mitad_alto + EPS:
-                return None
-            return radio - dy / RAIZ3
-
+        alto_teorico = ancho * RAIZ3 / 2
+        semiancho = _semiancho_lado_plano(ancho)
     else:
-        # Vértice arriba: lados verticales a izquierda y derecha. Ancho = 2·apotema.
-        apotema = ancho / 2.0
-        radio = ancho / RAIZ3
-        alto_teorico = 2.0 * radio
-
-        def semiancho(dy: float) -> float | None:
-            if dy > radio + EPS:
-                return None
-            if dy <= radio / 2.0:
-                return apotema
-            return (radio - dy) * RAIZ3
-
-    filas, cy = _filas_simetricas(ancho, semiancho, alto_teorico)
-    return filas, ancho, len(filas), float(ancho), alto_teorico, (ancho / 2.0, cy)
+        alto_teorico = 2 * ancho / RAIZ3
+        semiancho = _semiancho_vertice_arriba(ancho)
+    filas = _filas_simetricas(ancho, semiancho, alto_teorico)
+    return _Rasterizado(filas, ancho, ancho, alto_teorico, (ancho / 2, len(filas) / 2))
 
 
-def _filas_triangulo(base: int, orientacion: str):
-    """Triángulo equilátero de base ``base``.
+def _triangulo(base: int, orientacion: str) -> _Rasterizado:
+    """Se calcula con el vértice arriba; las otras orientaciones son reflejos o la transpuesta."""
+    altura = base * RAIZ3 / 2
+    cx = base / 2
 
-    Se calcula con el vértice arriba y la base apoyada exactamente en la línea
-    inferior de la cuadrícula; las demás orientaciones son reflejos o la
-    transpuesta de esa misma figura, así que son idénticas salvo por el giro.
-    """
-    altura = base * RAIZ3 / 2.0
-    cx = base / 2.0
-    # La base puede apoyarse en la línea inferior de la cuadrícula (desfase 0,5:
-    # los centros de fila quedan a 0,5, 1,5… de la base) o pasar por los centros
-    # de la fila inferior (desfase 0). Igual que en el hexágono, se elige la
-    # colocación cuyo alto en bloques se acerca más al teórico; si empatan,
-    # la base sobre la línea de la cuadrícula.
-    candidatos = []
-    for preferencia, desfase in enumerate((0.5, 0.0)):
-        desde_base: list[Tramo] = []
-        k = 0
-        while True:
-            d = k + desfase  # altura del centro de la fila sobre la base
-            if d > altura + EPS:
-                break
-            tramo = _tramo_centrado(cx, (altura - d) / RAIZ3)
-            if tramo is None:
-                break
-            desde_base.append(tramo)
-            k += 1
-        if desde_base:
-            candidatos.append((abs(len(desde_base) - altura), preferencia, desfase, desde_base))
-    if not candidatos:
-        raise ErrorDeTamano("La figura es demasiado pequeña para ocupar algún bloque.")
-    candidatos.sort(key=lambda c: (c[0], c[1]))
-    _, _, desfase, desde_base = candidatos[0]
-    filas = list(reversed(desde_base))  # de arriba (vértice) a abajo (base)
+    def semiancho(d: float) -> float | None:
+        return None if d > altura + EPS else (altura - d) / RAIZ3
+
+    # Desfase 0,5: base sobre una línea de la cuadrícula; 0: base por los centros de la última fila.
+    candidatos = [
+        (_apilar(lambda k, s=desfase: semiancho(k + s), cx), desfase) for desfase in (0.5, 0.0)
+    ]
+    desde_base, desfase = _mas_cercano(candidatos, altura)
+    filas = desde_base[::-1]
     alto = len(filas)
-    # La base continua está en y = alto − 0,5 + desfase. El centroide del
-    # triángulo está a un tercio de la altura por encima de la base.
-    cy = (alto - 0.5 + desfase) - altura / 3.0
+    cy = alto - 0.5 + desfase - altura / 3
+
     if orientacion == "arriba":
-        return filas, base, alto, float(base), altura, (cx, cy)
+        return _Rasterizado(filas, base, base, altura, (cx, cy))
     if orientacion == "abajo":
-        return list(reversed(filas)), base, alto, float(base), altura, (cx, alto - cy)
-    # Izquierda / derecha: la base pasa a ser vertical.
-    transpuesta = _transponer(filas, base)  # vértice a la izquierda
-    ancho, nuevo_alto = alto, base
+        return _Rasterizado(filas[::-1], base, base, altura, (cx, alto - cy))
+    transpuesta = _transponer(filas, base)
     if orientacion == "izquierda":
-        return transpuesta, ancho, nuevo_alto, altura, float(base), (cy, cx)
-    # derecha: reflejo horizontal
-    reflejada = [(ancho - 1 - x1, ancho - 1 - x0) for x0, x1 in transpuesta]
-    return reflejada, ancho, nuevo_alto, altura, float(base), (ancho - cy, cx)
+        return _Rasterizado(transpuesta, alto, altura, base, (cy, cx))
+    reflejada = [(alto - 1 - x1, alto - 1 - x0) for x0, x1 in transpuesta]
+    return _Rasterizado(reflejada, alto, altura, base, (alto - cy, cx))
+
+
+def _rasterizar(cfg: Configuracion) -> _Rasterizado:
+    if cfg.figura == "circulo":
+        return _circulo(cfg.tamano)
+    if cfg.figura == "hexagono":
+        return _hexagono(cfg.tamano, cfg.orientacion)
+    return _triangulo(cfg.tamano, cfg.orientacion)
 
 
 def generar(config: Configuracion) -> Figura:
-    """Genera la figura en bloques para una configuración (validándola antes)."""
     cfg = config.validada()
-    if cfg.figura == "circulo":
-        datos = _filas_circulo(cfg.tamano)
-    elif cfg.figura == "hexagono":
-        datos = _filas_hexagono(cfg.tamano, cfg.orientacion)
-    else:
-        datos = _filas_triangulo(cfg.tamano, cfg.orientacion)
-    filas, ancho, alto, ancho_t, alto_t, centro = datos
-
-    relleno: tuple[Fila, ...] = tuple(((t,) if t else ()) for t in filas)
-    if cfg.modo == "relleno":
-        visibles = relleno
-    else:
-        visibles = tuple(_contorno(list(filas)))
+    r = _rasterizar(cfg)
+    relleno = tuple((tramo,) for tramo in r.filas)
+    visibles = relleno if cfg.modo == "relleno" else tuple(_contorno(r.filas))
     return Figura(
         config=cfg,
         filas=visibles,
-        ancho=ancho,
-        alto=alto,
-        ancho_teorico=ancho_t,
-        alto_teorico=alto_t,
-        centro=centro,
+        ancho=r.ancho,
+        alto=len(r.filas),
+        ancho_teorico=float(r.ancho_teorico),
+        alto_teorico=float(r.alto_teorico),
+        centro=r.centro,
         filas_relleno=relleno,
     )
 
 
 def descripcion(config: Configuracion) -> str:
-    nombre = NOMBRES_FIGURA[config.figura]
-    orient = NOMBRES_ORIENTACION.get(config.orientacion, "")
-    partes = [nombre]
-    if orient:
-        partes.append(f"({orient})")
-    partes.append(f"— {NOMBRES_MODO[config.modo]}")
-    return " ".join(partes)
+    texto = NOMBRES_FIGURA[config.figura]
+    orientacion = NOMBRES_ORIENTACION.get(config.orientacion, "")
+    if orientacion:
+        texto += f" ({orientacion})"
+    return f"{texto} — {config.modo}"

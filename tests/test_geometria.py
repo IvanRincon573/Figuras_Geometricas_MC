@@ -15,8 +15,6 @@ from figuras_bloques.geometria import (
     generar,
 )
 
-# Tamaños de hexágono: todos los pequeños, varios medianos y algunos grandes,
-# pares e impares.
 HEX_TAMANOS = list(range(1, 81)) + [99, 100, 127, 128, 255, 256, 499, 500, 999, 1000]
 ORIENT_HEX = ("plano", "vertice")
 MODOS = ("contorno", "relleno")
@@ -26,7 +24,6 @@ def hexagono(w: int, orient: str, modo: str = "relleno") -> Figura:
     return generar(Configuracion("hexagono", w, orient, modo))
 
 
-# ---------------------------------------------------------------- utilidades
 def vecinos4(x, y):
     return ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1))
 
@@ -59,22 +56,17 @@ def caja(celdas) -> tuple[int, int, int, int]:
 def comprobar_basico(f: Figura) -> None:
     """Propiedades comunes a cualquier figura."""
     celdas = f.celdas
-    # Sin duplicados y conteo coherente.
     assert len(celdas) == len(set(celdas)) == f.total
     assert sum(f.bloques_por_fila()) == f.total
     assert len(f.filas) == f.alto
-    # Coordenadas enteras dentro de la caja ancho × alto, que se ocupa entera.
     assert all(isinstance(x, int) and isinstance(y, int) for x, y in celdas)
     assert caja(celdas) == (0, f.ancho - 1, 0, f.alto - 1)
-    # Tramos ordenados, sin solaparse ni tocarse.
     for fila in f.filas:
         for (a0, a1), (b0, b1) in zip(fila, fila[1:]):
             assert a0 <= a1 < b0 - 1 < b1
-    # Determinismo.
     assert generar(f.config).filas == f.filas
 
 
-# ================================================================ hexágono
 @pytest.mark.parametrize("orient", ORIENT_HEX)
 @pytest.mark.parametrize("w", HEX_TAMANOS)
 def test_hexagono_dimensiones(w, orient):
@@ -83,7 +75,6 @@ def test_hexagono_dimensiones(w, orient):
     assert f.ancho == w, "el ancho en bloques debe ser exactamente el pedido"
     teorico = w * RAIZ3 / 2 if orient == "plano" else 2 * w / RAIZ3
     assert f.alto_teorico == pytest.approx(teorico)
-    # Se elige la colocación con el alto más cercano al teórico: nunca más de ~0,6 bloques.
     assert abs(f.alto - teorico) <= 0.6, (f.alto, teorico)
 
 
@@ -97,7 +88,6 @@ def test_hexagono_simetrias(w, orient, modo):
     espejo_v = {(x, f.alto - 1 - y) for x, y in s}
     assert espejo_h == s, "simetría izquierda-derecha"
     assert espejo_v == s, "simetría arriba-abajo"
-    # El centro coincide con el centro de la caja de bloques.
     assert f.centro == (f.ancho / 2, f.alto / 2)
 
 
@@ -109,23 +99,20 @@ def test_hexagono_forma(w, orient):
     assert all(len(fila) == 1 for fila in f.filas), "cada fila del relleno es un único tramo"
     anchos = f.bloques_por_fila()
     mitad = (f.alto - 1) // 2
-    # Crece hasta el centro y decrece después.
     assert all(a <= b for a, b in zip(anchos[: mitad + 1], anchos[1 : mitad + 1]))
     assert anchos == anchos[::-1]
     x0 = [fila[0][0] for fila in f.filas]
     saltos = [abs(a - b) for a, b in zip(x0, x0[1:])]
     if orient == "plano":
-        # Pendiente teórica de 1/√3 ≈ 0,58 bloques por fila: avanza 0 o 1 por fila.
+        # pendiente teórica 1/√3 ≈ 0,58 bloques por fila
         assert max(saltos, default=0) <= 1
-        # Las filas superior e inferior son el lado plano (paridad igual al ancho).
         assert anchos[0] % 2 == w % 2
         if w >= 8:
             assert abs(anchos[0] - w / 2) <= 1.5, "el lado superior mide ≈ la mitad del ancho"
     else:
-        # Pendiente teórica de √3 ≈ 1,73 bloques por fila: avanza 1 o 2 por fila.
+        # pendiente teórica √3 ≈ 1,73 bloques por fila
         assert max(saltos, default=0) <= 2
         llenas = [i for i, a in enumerate(anchos) if a == w]
-        # Las filas de ancho completo (lados verticales) son consecutivas y centradas.
         assert llenas == list(range(llenas[0], llenas[-1] + 1))
         assert llenas[0] == f.alto - 1 - llenas[-1]
         # Una fila es "completa" si el centro de su bloque extremo cae dentro del
@@ -148,7 +135,6 @@ def test_hexagono_pendiente_real(w, orient):
         else:
             semiancho = w / 2 if dy <= radio / 2 else (radio - dy) * RAIZ3
         borde_izq = cx - semiancho
-        # El bloque extremo contiene, o está a menos de medio bloque de, el borde real.
         assert abs((x0 + 0.5) - max(borde_izq, 0)) <= 1.0 + 1e-9
 
 
@@ -166,24 +152,19 @@ def test_hexagono_contorno(w, orient):
     assert (con.ancho, con.alto) == (rel.ancho, rel.alto)
     assert C <= R
     assert C == _contorno_fuerza_bruta(R)
-    # Cerrado: ningún bloque interior toca el exterior por un lado.
     interior = R - C
     assert all(v in R for c in interior for v in vecinos4(*c))
-    # Continuo: una sola pieza conectada (se admiten contactos en diagonal).
-    assert componentes8(C) == 1
-    # Grosor de un bloque: nunca un cuadrado 2×2 de contorno (salvo la figura de 2×2).
+    assert componentes8(C) == 1, "el contorno debe ser una sola pieza"
     if w > 2:
         assert not any(
             (x + 1, y) in C and (x, y + 1) in C and (x + 1, y + 1) in C for x, y in C
         )
-    # Contorno simétrico igual que el relleno.
     assert {(con.ancho - 1 - x, y) for x, y in C} == C
     assert {(x, con.alto - 1 - y) for x, y in C} == C
 
 
 @pytest.mark.parametrize("orient", ORIENT_HEX)
 def test_hexagono_centro_par_impar(orient):
-    # Ancho impar: hay una columna central; par: el centro cae entre dos columnas.
     assert hexagono(21, orient).centro[0] == 10.5
     assert hexagono(20, orient).centro[0] == 10.0
     for w in range(1, 200):
@@ -203,7 +184,6 @@ def test_hexagono_casos_conocidos():
     assert vert11.alto == 13
 
 
-# ================================================================ círculo
 @pytest.mark.parametrize("modo", MODOS)
 @pytest.mark.parametrize("d", list(range(1, 70)) + [128, 255, 500, 1000])
 def test_circulo(d, modo):
@@ -230,7 +210,6 @@ def test_circulo_criterio_centro():
             assert f.contiene(x, y) == dentro
 
 
-# ================================================================ triángulo
 @pytest.mark.parametrize("modo", MODOS)
 @pytest.mark.parametrize("orient", ("arriba", "abajo", "izquierda", "derecha"))
 @pytest.mark.parametrize("b", list(range(1, 60)) + [127, 128, 500, 1000])
@@ -261,11 +240,9 @@ def test_triangulo_orientaciones_equivalentes(b):
     assert {(x, arriba.alto - 1 - y) for x, y in arriba.conjunto} == abajo.conjunto
     assert {(y, x) for x, y in arriba.conjunto} == izq.conjunto
     assert {(izq.ancho - 1 - x, y) for x, y in izq.conjunto} == der.conjunto
-    # La base es una fila (o columna) completa.
     assert arriba.bloques_por_fila()[-1] == b
 
 
-# ================================================================ validación
 @pytest.mark.parametrize("tamano", [0, -5, TAMANO_MAXIMO + 1, 99999])
 @pytest.mark.parametrize("figura", ["circulo", "triangulo", "hexagono"])
 def test_tamano_fuera_de_rango(figura, tamano):

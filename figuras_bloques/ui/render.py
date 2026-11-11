@@ -1,9 +1,4 @@
-"""Dibujo de una figura en bloques con QPainter.
-
-Lo usan tanto el lienzo interactivo como la exportación a PNG, de modo que la
-imagen exportada es exactamente lo que se ve (sin las ayudas visuales que no
-se hayan pedido). Todas las medidas están en píxeles físicos.
-"""
+"""Dibujo de una figura en bloques, compartido por el lienzo y la exportación PNG."""
 
 from __future__ import annotations
 
@@ -15,6 +10,11 @@ from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
 
 from ..geometria import Figura
 
+PASOS_ETIQUETA = (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000)
+ESCALA_MIN_SEPARADORES = 5
+ESCALA_MIN_RELIEVE = 12
+MAX_CELDAS_CON_SEPARADORES = 80_000
+
 
 @dataclass
 class OpcionesDibujo:
@@ -22,10 +22,10 @@ class OpcionesDibujo:
     ejes: bool = True
     centro: bool = True
     numeros: bool = True
-    marco: bool = True  # recuadro del ancho × alto de la figura
-    fila_resaltada: int | None = None  # base 0
+    marco: bool = True
+    fila_resaltada: int | None = None
     celda_cursor: tuple[int, int] | None = None
-    fondo: QColor | None = None  # None = transparente
+    fondo: QColor | None = None
 
 
 class Paleta:
@@ -44,20 +44,9 @@ class Paleta:
     numeros_resaltado = QColor("#B36F00")
 
 
-def _mas_oscuro(color: QColor, factor: int = 135) -> QColor:
-    return color.darker(factor)
-
-
-def _mas_claro(color: QColor, factor: int = 125) -> QColor:
-    return color.lighter(factor)
-
-
 def paso_etiquetas(escala: float, ancho_texto: float) -> int:
-    """Cada cuántas filas/columnas cabe una etiqueta numérica."""
-    for paso in (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000):
-        if paso * escala >= ancho_texto:
-            return paso
-    return 1000
+    """Cada cuántas filas o columnas cabe una etiqueta numérica."""
+    return next((paso for paso in PASOS_ETIQUETA if paso * escala >= ancho_texto), PASOS_ETIQUETA[-1])
 
 
 def dibujar_figura(
@@ -67,199 +56,207 @@ def dibujar_figura(
     origen: QPointF,
     visible: QRectF,
     opciones: OpcionesDibujo,
-    color: QColor | None = None,
 ) -> None:
-    """Dibuja la figura con la celda (0, 0) en ``origen`` y ``escala`` px por bloque.
+    """Dibuja la figura con la celda (0, 0) en ``origen`` y ``escala`` píxeles por bloque."""
+    _Dibujo(p, figura, escala, origen, visible, opciones).dibujar()
 
-    ``visible`` es el rectángulo (en píxeles) que hay que pintar; se usa para
-    no dibujar nada fuera de pantalla.
-    """
-    s = escala
-    ox, oy = origen.x(), origen.y()
-    color = QColor(color or figura.config.color)
 
-    if opciones.fondo is not None:
-        p.fillRect(visible, opciones.fondo)
+class _Dibujo:
+    def __init__(self, p, figura, escala, origen, visible, opciones) -> None:
+        self.p = p
+        self.figura = figura
+        self.s = escala
+        self.ox, self.oy = origen.x(), origen.y()
+        self.visible = visible
+        self.opciones = opciones
+        self.color = QColor(figura.config.color)
+        self.col_min = math.floor((visible.left() - self.ox) / escala) - 1
+        self.col_max = math.ceil((visible.right() - self.ox) / escala) + 1
+        self.fila_min = math.floor((visible.top() - self.oy) / escala) - 1
+        self.fila_max = math.ceil((visible.bottom() - self.oy) / escala) + 1
+        fila = opciones.fila_resaltada
+        self.fila = fila if fila is not None and 0 <= fila < figura.alto else None
 
-    # Rango de celdas visibles (con un margen de una celda).
-    cx0 = math.floor((visible.left() - ox) / s) - 1
-    cx1 = math.ceil((visible.right() - ox) / s) + 1
-    cy0 = math.floor((visible.top() - oy) / s) - 1
-    cy1 = math.ceil((visible.bottom() - oy) / s) + 1
+    def dibujar(self) -> None:
+        o = self.opciones
+        if o.fondo is not None:
+            self.p.fillRect(self.visible, o.fondo)
+        self.p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        if o.marco:
+            self.p.fillRect(self._caja(), Paleta.marco_relleno)
+        if o.cuadricula:
+            self._cuadricula()
+        if self.fila is not None:
+            self._banda_fila()
+        celdas = self._bloques()
+        if self.s >= ESCALA_MIN_SEPARADORES and celdas <= MAX_CELDAS_CON_SEPARADORES:
+            self._separadores()
+        if o.marco:
+            self._borde_caja()
+        if self.fila is not None:
+            self._borde_fila()
+        self.p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if o.ejes:
+            self._ejes()
+        if o.centro:
+            self._marca_centro()
+        if o.celda_cursor is not None and self.s >= 3:
+            self._celda_cursor()
+        if o.numeros and self.s >= 2:
+            self._numeros()
 
-    p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+    def _x(self, columna: float) -> float:
+        return self.ox + columna * self.s
 
-    # Recuadro con el ancho × alto de la figura.
-    caja = QRectF(ox, oy, figura.ancho * s, figura.alto * s)
-    if opciones.marco:
-        p.fillRect(caja, Paleta.marco_relleno)
+    def _y(self, fila: float) -> float:
+        return self.oy + fila * self.s
 
-    # --- Cuadrícula ----------------------------------------------------------
-    if opciones.cuadricula:
+    def _caja(self) -> QRectF:
+        return QRectF(self.ox, self.oy, self.figura.ancho * self.s, self.figura.alto * self.s)
+
+    def _tramos_visibles(self):
+        """(y, primera, última) de cada tramo recortado a la zona visible."""
+        for y in range(max(0, self.fila_min), min(self.figura.alto - 1, self.fila_max) + 1):
+            for x0, x1 in self.figura.filas[y]:
+                a, b = max(x0, self.col_min), min(x1, self.col_max)
+                if a <= b:
+                    yield y, a, b
+
+    def _cuadricula(self) -> None:
+        s, v = self.s, self.visible
+        paso_mayor = 5 if s * 5 >= 6 else (10 if s * 10 >= 6 else 50)
+        con_menores = s >= 4
         menores: list[QLineF] = []
         mayores: list[QLineF] = []
-        dibujar_menores = s >= 4
-        paso_mayor = 5 if s * 5 >= 6 else (10 if s * 10 >= 6 else 50)
-        top, bottom = visible.top(), visible.bottom()
-        left, right = visible.left(), visible.right()
-        for x in range(cx0, cx1 + 1):
-            px = ox + x * s
+        for x in range(self.col_min, self.col_max + 1):
+            linea = QLineF(self._x(x), v.top(), self._x(x), v.bottom())
             if x % paso_mayor == 0:
-                mayores.append(QLineF(px, top, px, bottom))
-            elif dibujar_menores:
-                menores.append(QLineF(px, top, px, bottom))
-        for y in range(cy0, cy1 + 1):
-            py = oy + y * s
+                mayores.append(linea)
+            elif con_menores:
+                menores.append(linea)
+        for y in range(self.fila_min, self.fila_max + 1):
+            linea = QLineF(v.left(), self._y(y), v.right(), self._y(y))
             if y % paso_mayor == 0:
-                mayores.append(QLineF(left, py, right, py))
-            elif dibujar_menores:
-                menores.append(QLineF(left, py, right, py))
-        if menores:
-            p.setPen(QPen(Paleta.linea_menor, 1))
-            p.drawLines(menores)
-        p.setPen(QPen(Paleta.linea_mayor, 1))
-        p.drawLines(mayores)
+                mayores.append(linea)
+            elif con_menores:
+                menores.append(linea)
+        self.p.setPen(QPen(Paleta.linea_menor, 1))
+        self.p.drawLines(menores)
+        self.p.setPen(QPen(Paleta.linea_mayor, 1))
+        self.p.drawLines(mayores)
 
-    # Banda de la fila resaltada (por debajo de los bloques).
-    fila = opciones.fila_resaltada
-    if fila is not None and 0 <= fila < figura.alto:
-        banda = QRectF(visible.left(), oy + fila * s, visible.width(), s)
-        p.fillRect(banda, Paleta.resaltado_banda)
+    def _banda_fila(self) -> None:
+        v = self.visible
+        self.p.fillRect(QRectF(v.left(), self._y(self.fila), v.width(), self.s), Paleta.resaltado_banda)
 
-    # --- Bloques -----------------------------------------------------------
-    y_ini = max(0, cy0)
-    y_fin = min(figura.alto - 1, cy1)
-    rects: list[QRectF] = []
-    celdas_visibles = 0
-    for y in range(y_ini, y_fin + 1):
-        for x0, x1 in figura.filas[y]:
-            a, b = max(x0, cx0), min(x1, cx1)
-            if a > b:
+    def _bloques(self) -> int:
+        rects = []
+        celdas = 0
+        for y, a, b in self._tramos_visibles():
+            rects.append(QRectF(self._x(a), self._y(y), (b - a + 1) * self.s, self.s))
+            celdas += b - a + 1
+        self.p.setPen(Qt.PenStyle.NoPen)
+        self.p.setBrush(self.color)
+        self.p.drawRects(rects)
+        return celdas
+
+    def _separadores(self) -> None:
+        s = self.s
+        con_relieve = s >= ESCALA_MIN_RELIEVE
+        sombras: list[QLineF] = []
+        luces: list[QLineF] = []
+        for y, a, b in self._tramos_visibles():
+            arriba, abajo = self._y(y), self._y(y + 1)
+            sombras.append(QLineF(self._x(a), arriba, self._x(b + 1), arriba))
+            sombras.append(QLineF(self._x(a), abajo - 1, self._x(b + 1), abajo - 1))
+            for x in range(a, b + 2):
+                px = self._x(x)
+                sombras.append(QLineF(px, arriba, px, abajo))
+                if con_relieve and x <= b:
+                    luces.append(QLineF(px + 1, arriba + 1, px + s - 2, arriba + 1))
+                    luces.append(QLineF(px + 1, arriba + 1, px + 1, abajo - 2))
+        if luces:
+            self.p.setPen(QPen(self.color.lighter(125), 1))
+            self.p.drawLines(luces)
+        self.p.setPen(QPen(self.color.darker(150), 1))
+        self.p.drawLines(sombras)
+
+    def _borde_caja(self) -> None:
+        self.p.setPen(QPen(Paleta.marco_borde, 1, Qt.PenStyle.DashLine))
+        self.p.setBrush(Qt.BrushStyle.NoBrush)
+        self.p.drawRect(self._caja())
+
+    def _borde_fila(self) -> None:
+        self.p.setPen(QPen(Paleta.resaltado_borde, max(2.0, min(4.0, self.s / 6))))
+        self.p.setBrush(Qt.BrushStyle.NoBrush)
+        for x0, x1 in self.figura.filas[self.fila]:
+            self.p.drawRect(QRectF(self._x(x0), self._y(self.fila), (x1 - x0 + 1) * self.s, self.s))
+
+    def _centro_px(self) -> QPointF:
+        cx, cy = self.figura.centro
+        return QPointF(self._x(cx), self._y(cy))
+
+    def _ejes(self) -> None:
+        c, v = self._centro_px(), self.visible
+        grosor = max(1.5, min(3.0, self.s / 8))
+        self.p.setPen(QPen(Paleta.eje_vertical, grosor, Qt.PenStyle.DashLine))
+        self.p.drawLine(QLineF(c.x(), v.top(), c.x(), v.bottom()))
+        self.p.setPen(QPen(Paleta.eje_horizontal, grosor, Qt.PenStyle.DashLine))
+        self.p.drawLine(QLineF(v.left(), c.y(), v.right(), c.y()))
+
+    def _marca_centro(self) -> None:
+        c = self._centro_px()
+        r = max(4.0, min(10.0, self.s * 0.35))
+        self.p.setBrush(Qt.BrushStyle.NoBrush)
+        self.p.setPen(QPen(QColor("white"), 3))
+        self.p.drawEllipse(c, r, r)
+        self.p.setPen(QPen(Paleta.centro, 2))
+        self.p.drawEllipse(c, r, r)
+        self.p.drawLine(QLineF(c.x() - r * 1.6, c.y(), c.x() + r * 1.6, c.y()))
+        self.p.drawLine(QLineF(c.x(), c.y() - r * 1.6, c.x(), c.y() + r * 1.6))
+
+    def _celda_cursor(self) -> None:
+        x, y = self.opciones.celda_cursor
+        self.p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        self.p.setPen(QPen(Paleta.cursor, 2))
+        self.p.setBrush(Qt.BrushStyle.NoBrush)
+        self.p.drawRect(QRectF(self._x(x), self._y(y), self.s, self.s))
+
+    def _numeros(self) -> None:
+        fuente = QFont("Segoe UI")
+        fuente.setPixelSize(int(round(max(7.0, min(13.0, self.s * 0.55)))))
+        self.p.setFont(fuente)
+        metricas = QFontMetricsF(fuente)
+        ancho_txt = metricas.horizontalAdvance(str(max(self.figura.ancho, self.figura.alto))) + 6
+        alto_txt = metricas.height()
+        self._numeros_columnas(ancho_txt, alto_txt)
+        self._numeros_filas(fuente, ancho_txt, alto_txt)
+
+    def _etiqueta_visible(self, n: int, total: int, paso: int, espacio: float) -> bool:
+        if n == 1 or n % paso == 0:
+            return True
+        return n == total and (n % paso) * self.s >= espacio
+
+    def _numeros_columnas(self, ancho_txt: float, alto_txt: float) -> None:
+        paso = paso_etiquetas(self.s, ancho_txt)
+        y_txt = max(self.visible.top() + 2, self.oy - alto_txt - 3)
+        self.p.setPen(Paleta.numeros)
+        for x in range(max(0, self.col_min), min(self.figura.ancho - 1, self.col_max) + 1):
+            if self._etiqueta_visible(x + 1, self.figura.ancho, paso, ancho_txt):
+                rect = QRectF(self._x(x + 0.5) - ancho_txt / 2, y_txt, ancho_txt, alto_txt)
+                self.p.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(x + 1))
+
+    def _numeros_filas(self, fuente: QFont, ancho_txt: float, alto_txt: float) -> None:
+        paso = paso_etiquetas(self.s, alto_txt + 2)
+        x_txt = max(self.visible.left() + 2, self.ox - ancho_txt - 4)
+        negrita = QFont(fuente)
+        negrita.setBold(True)
+        alineacion = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        for y in range(max(0, self.fila_min), min(self.figura.alto - 1, self.fila_max) + 1):
+            resaltada = y == self.fila
+            if not resaltada and not self._etiqueta_visible(y + 1, self.figura.alto, paso, alto_txt + 2):
                 continue
-            rects.append(QRectF(ox + a * s, oy + y * s, (b - a + 1) * s, s))
-            celdas_visibles += b - a + 1
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(color)
-    if rects:
-        p.drawRects(rects)
-
-    # Separación entre bloques y relieve (solo si los bloques se ven grandes).
-    if s >= 5 and celdas_visibles <= 80_000:
-        lineas_osc: list[QLineF] = []
-        lineas_cla: list[QLineF] = []
-        relieve = s >= 12
-        for y in range(y_ini, y_fin + 1):
-            top = oy + y * s
-            bot = top + s
-            for x0, x1 in figura.filas[y]:
-                a, b = max(x0, cx0), min(x1, cx1)
-                if a > b:
-                    continue
-                left = ox + a * s
-                right = ox + (b + 1) * s
-                lineas_osc.append(QLineF(left, top, right, top))
-                lineas_osc.append(QLineF(left, bot - 1, right, bot - 1))
-                for x in range(a, b + 2):
-                    px = ox + x * s
-                    lineas_osc.append(QLineF(px, top, px, bot))
-                    if relieve and x <= b:
-                        # Luz arriba-izquierda dentro de cada bloque.
-                        lineas_cla.append(QLineF(px + 1, top + 1, px + s - 2, top + 1))
-                        lineas_cla.append(QLineF(px + 1, top + 1, px + 1, bot - 2))
-        if relieve:
-            p.setPen(QPen(_mas_claro(color, 125), 1))
-            p.drawLines(lineas_cla)
-        p.setPen(QPen(_mas_oscuro(color, 150), 1))
-        p.drawLines(lineas_osc)
-
-    if opciones.marco:
-        p.setPen(QPen(Paleta.marco_borde, 1, Qt.PenStyle.DashLine))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRect(caja)
-
-    # --- Fila resaltada: borde de sus bloques --------------------------------
-    if fila is not None and 0 <= fila < figura.alto:
-        grosor = max(2.0, min(4.0, s / 6))
-        p.setPen(QPen(Paleta.resaltado_borde, grosor))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        for x0, x1 in figura.filas[fila]:
-            p.drawRect(QRectF(ox + x0 * s, oy + fila * s, (x1 - x0 + 1) * s, s))
-
-    # --- Ejes y centro -------------------------------------------------------
-    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    ccx = ox + figura.centro[0] * s
-    ccy = oy + figura.centro[1] * s
-    if opciones.ejes:
-        grosor = max(1.5, min(3.0, s / 8))
-        pen_v = QPen(Paleta.eje_vertical, grosor, Qt.PenStyle.DashLine)
-        p.setPen(pen_v)
-        p.drawLine(QLineF(ccx, visible.top(), ccx, visible.bottom()))
-        pen_h = QPen(Paleta.eje_horizontal, grosor, Qt.PenStyle.DashLine)
-        p.setPen(pen_h)
-        p.drawLine(QLineF(visible.left(), ccy, visible.right(), ccy))
-    if opciones.centro:
-        r = max(4.0, min(10.0, s * 0.35))
-        p.setPen(QPen(QColor("white"), 3))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(QPointF(ccx, ccy), r, r)
-        p.setPen(QPen(Paleta.centro, 2))
-        p.drawEllipse(QPointF(ccx, ccy), r, r)
-        p.drawLine(QLineF(ccx - r * 1.6, ccy, ccx + r * 1.6, ccy))
-        p.drawLine(QLineF(ccx, ccy - r * 1.6, ccx, ccy + r * 1.6))
-
-    # --- Celda bajo el cursor --------------------------------------------------
-    if opciones.celda_cursor is not None and s >= 3:
-        x, y = opciones.celda_cursor
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        p.setPen(QPen(Paleta.cursor, 2))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRect(QRectF(ox + x * s, oy + y * s, s, s))
-
-    # --- Numeración de filas y columnas -------------------------------------
-    if opciones.numeros and s >= 2:
-        _dibujar_numeros(p, figura, s, ox, oy, visible, cx0, cx1, cy0, cy1, fila)
-
-
-def _dibujar_numeros(p, figura, s, ox, oy, visible, cx0, cx1, cy0, cy1, fila) -> None:
-    tam = max(7.0, min(13.0, s * 0.55))
-    fuente = QFont("Segoe UI")
-    fuente.setPixelSize(int(round(tam * 1.0)))
-    p.setFont(fuente)
-    fm = QFontMetricsF(fuente)
-    ancho_txt = fm.horizontalAdvance(str(max(figura.ancho, figura.alto))) + 6
-    alto_txt = fm.height()
-
-    # Columnas, encima del recuadro (pegadas al borde superior visible si hace falta).
-    paso = paso_etiquetas(s, ancho_txt)
-    y_txt = max(visible.top() + 2, oy - alto_txt - 3)
-    for x in range(max(0, cx0), min(figura.ancho - 1, cx1) + 1):
-        n = x + 1
-        if n != 1 and n % paso != 0 and n != figura.ancho:
-            continue
-        if n == figura.ancho and paso > 1 and n % paso != 0 and (n % paso) * s < ancho_txt:
-            continue
-        rect = QRectF(ox + x * s + s / 2 - ancho_txt / 2, y_txt, ancho_txt, alto_txt)
-        p.setPen(Paleta.numeros)
-        p.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(n))
-
-    # Filas, a la izquierda del recuadro.
-    paso_f = paso_etiquetas(s, alto_txt + 2)
-    x_txt = max(visible.left() + 2, ox - ancho_txt - 4)
-    for y in range(max(0, cy0), min(figura.alto - 1, cy1) + 1):
-        n = y + 1
-        es_fila = fila == y
-        if not es_fila and n != 1 and n % paso_f != 0 and n != figura.alto:
-            continue
-        if not es_fila and n == figura.alto and paso_f > 1 and (n % paso_f) * s < alto_txt + 2:
-            continue
-        rect = QRectF(x_txt, oy + y * s + s / 2 - alto_txt / 2, ancho_txt, alto_txt)
-        if es_fila:
-            fuente_b = QFont(fuente)
-            fuente_b.setBold(True)
-            p.setFont(fuente_b)
-            p.setPen(Paleta.numeros_resaltado)
-            p.drawText(rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, str(n))
-            p.setFont(fuente)
-        else:
-            p.setPen(Paleta.numeros)
-            p.drawText(rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, str(n))
+            self.p.setFont(negrita if resaltada else fuente)
+            self.p.setPen(Paleta.numeros_resaltado if resaltada else Paleta.numeros)
+            rect = QRectF(x_txt, self._y(y + 0.5) - alto_txt / 2, ancho_txt, alto_txt)
+            self.p.drawText(rect, alineacion, str(y + 1))

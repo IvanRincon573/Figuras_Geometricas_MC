@@ -88,7 +88,6 @@ def test_celda_bajo_cursor(ventana):
     ventana.regenerar(reajustar=True)
     lz = ventana.lienzo
     d = lz.devicePixelRatioF()
-    # Centro del bloque (4, 4) en píxeles lógicos.
     px = (lz._origen.x() + 4.5 * lz._escala) / d
     py = (lz._origen.y() + 4.5 * lz._escala) / d
     assert lz.celda_en(QPointF(px, py)) == (4, 4)

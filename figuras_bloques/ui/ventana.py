@@ -228,6 +228,28 @@ class DialogoPNG(QDialog):
         super().accept()
 
 
+def _texto_proporciones(figura: Figura) -> str:
+    cfg = figura.config
+    if cfg.figura == "circulo":
+        return f"Ancho = alto = <b>{figura.ancho}</b> bloques."
+    if cfg.figura == "triangulo" and cfg.orientacion in ("izquierda", "derecha"):
+        return (
+            f"Ancho calculado: {formato_num(figura.ancho_teorico)} → <b>{figura.ancho} bloques</b>"
+            f"<br>Alto (base): <b>{figura.alto}</b> bloques"
+        )
+    return (
+        f"Alto calculado: {formato_num(figura.alto_teorico)} → <b>{figura.alto} bloques</b>"
+        f"<br>Ancho: <b>{figura.ancho}</b> bloques"
+    )
+
+
+def _texto_paridad(cfg: Configuracion) -> str:
+    par = cfg.tamano % 2 == 0
+    if cfg.figura == "triangulo":
+        return "Base par: el vértice ocupa 2 bloques." if par else "Base impar: el vértice es un solo bloque."
+    return "Tamaño par: el centro cae entre dos bloques." if par else "Tamaño impar: hay un bloque central."
+
+
 def renderizar_png(
     figura: Figura, px: int, cuadricula: bool, numeros: bool, transparente: bool
 ) -> QImage:
@@ -244,6 +266,13 @@ def renderizar_png(
     dibujar_figura(p, figura, px, QPointF(m * px, m * px), QRectF(0, 0, w, h), opciones)
     p.end()
     return img
+
+
+def _etiqueta_aviso() -> QLabel:
+    etiqueta = QLabel()
+    etiqueta.setObjectName("aviso")
+    etiqueta.setWordWrap(True)
+    return etiqueta
 
 
 def _seccion(texto: str) -> QLabel:
@@ -290,7 +319,6 @@ class VentanaPrincipal(QMainWindow):
         self._cargar_ajustes()
         self.regenerar(reajustar=True)
 
-    # ============================================================ construcción
     def _crear_acciones(self) -> None:
         def accion(texto, atajo=None, slot=None, tip=None):
             a = QAction(texto, self)
@@ -375,7 +403,34 @@ class VentanaPrincipal(QMainWindow):
         lay.addWidget(titulo)
         lay.addWidget(sub)
 
-        # --- Figura
+        for seccion in (
+            self._seccion_figura,
+            self._seccion_tamano,
+            self._seccion_orientacion,
+            self._seccion_proporciones,
+            self._seccion_modo,
+            self._seccion_color,
+        ):
+            seccion(lay)
+
+        lay.addStretch(1)
+        nota = QLabel(
+            "Rueda: zoom · Arrastrar: mover · Clic: resaltar fila\n"
+            "↑/↓: fila anterior/siguiente · Esc: quitar resaltado"
+        )
+        nota.setObjectName("aviso")
+        nota.setWordWrap(True)
+        lay.addWidget(nota)
+
+        scroll = QScrollArea()
+        scroll.setWidget(contenido)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMinimumWidth(270)
+        scroll.setMaximumWidth(420)
+        return scroll
+
+    def _seccion_figura(self, lay: QVBoxLayout) -> None:
         lay.addWidget(_seccion("Figura"))
         fila = QHBoxLayout()
         fila.setSpacing(6)
@@ -399,71 +454,74 @@ class VentanaPrincipal(QMainWindow):
             fila.addWidget(b)
         lay.addLayout(fila)
 
-        # --- Tamaño
+    def _seccion_tamano(self, lay: QVBoxLayout) -> None:
         lay.addWidget(_seccion("Tamaño"))
         self.lbl_tamano = QLabel()
         lay.addWidget(self.lbl_tamano)
         self.spin_tamano = QSpinBox()
         self.spin_tamano.setObjectName("tamano")
-        # Rango amplio a propósito: los valores fuera de 1–1000 muestran un mensaje.
+        # Admite valores fuera de 1-1000 para poder explicar por qué no son válidos.
         self.spin_tamano.setRange(0, 99999)
         self.spin_tamano.setSuffix(" bloques")
         self.spin_tamano.setAccelerated(True)
         lay.addWidget(self.spin_tamano)
-        self.lbl_ayuda_tamano = QLabel()
-        self.lbl_ayuda_tamano.setObjectName("aviso")
-        self.lbl_ayuda_tamano.setWordWrap(True)
+        self.lbl_ayuda_tamano = _etiqueta_aviso()
         lay.addWidget(self.lbl_ayuda_tamano)
-        rapidos = QGridLayout()
-        rapidos.setSpacing(4)
-        for i, (texto, delta) in enumerate((("−10", -10), ("−1", -1), ("+1", 1), ("+10", 10))):
-            b = QPushButton(texto)
-            b.setToolTip(f"{'Sumar' if delta > 0 else 'Restar'} {abs(delta)} bloque{'s' if abs(delta) > 1 else ''}")
-            b.clicked.connect(lambda _=False, d=delta: self.spin_tamano.setValue(
-                max(TAMANO_MINIMO, min(TAMANO_MAXIMO, self.spin_tamano.value() + d))))
-            rapidos.addWidget(b, 0, i)
-        lay.addLayout(rapidos)
+        lay.addLayout(self._botones_incremento())
         self.lbl_error = QLabel()
         self.lbl_error.setObjectName("error")
         self.lbl_error.setWordWrap(True)
         self.lbl_error.hide()
         lay.addWidget(self.lbl_error)
-        self.lbl_paridad = QLabel()
-        self.lbl_paridad.setObjectName("aviso")
-        self.lbl_paridad.setWordWrap(True)
+        self.lbl_paridad = _etiqueta_aviso()
         lay.addWidget(self.lbl_paridad)
 
-        # --- Orientación
+    def _botones_incremento(self) -> QGridLayout:
+        rejilla = QGridLayout()
+        rejilla.setSpacing(4)
+        for i, delta in enumerate((-10, -1, 1, 10)):
+            b = QPushButton(f"{delta:+d}".replace("-", "−"))
+            accion = "Sumar" if delta > 0 else "Restar"
+            plural = "s" if abs(delta) > 1 else ""
+            b.setToolTip(f"{accion} {abs(delta)} bloque{plural}")
+            b.clicked.connect(lambda _=False, d=delta: self._sumar_tamano(d))
+            rejilla.addWidget(b, 0, i)
+        return rejilla
+
+    def _sumar_tamano(self, delta: int) -> None:
+        nuevo = self.spin_tamano.value() + delta
+        self.spin_tamano.setValue(max(TAMANO_MINIMO, min(TAMANO_MAXIMO, nuevo)))
+
+    def _seccion_orientacion(self, lay: QVBoxLayout) -> None:
         self.sec_orientacion = _seccion("Orientación")
         lay.addWidget(self.sec_orientacion)
         self.combo_orient = QComboBox()
         lay.addWidget(self.combo_orient)
 
-        # --- Altura calculada
+    def _seccion_proporciones(self, lay: QVBoxLayout) -> None:
         lay.addWidget(_seccion("Proporciones"))
         self.lbl_alto_calc = QLabel()
         self.lbl_alto_calc.setWordWrap(True)
         self.lbl_alto_calc.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(self.lbl_alto_calc)
 
-        # --- Modo
+    def _seccion_modo(self, lay: QVBoxLayout) -> None:
         lay.addWidget(_seccion("Modo"))
-        fila_modo = QHBoxLayout()
+        fila = QHBoxLayout()
         self.grupo_modo = QButtonGroup(self)
         self.btn_contorno = QPushButton("Contorno")
         self.btn_relleno = QPushButton("Relleno")
         for b in (self.btn_contorno, self.btn_relleno):
             b.setCheckable(True)
             self.grupo_modo.addButton(b)
-            fila_modo.addWidget(b)
-        lay.addLayout(fila_modo)
+            fila.addWidget(b)
+        lay.addLayout(fila)
 
-        # --- Color
+    def _seccion_color(self, lay: QVBoxLayout) -> None:
         lay.addWidget(_seccion("Color de los bloques"))
         rejilla = QGridLayout()
         rejilla.setSpacing(6)
         self.grupo_color = QButtonGroup(self)
-        self.grupo_color.setExclusive(True)
         self.muestras: dict[str, QPushButton] = {}
         for i, (nombre, hexa) in enumerate(COLORES):
             b = QPushButton()
@@ -479,23 +537,6 @@ class VentanaPrincipal(QMainWindow):
         self.btn_color = QPushButton("Otro color…")
         self.btn_color.clicked.connect(self._dialogo_color)
         lay.addWidget(self.btn_color)
-
-        lay.addStretch(1)
-        nota = QLabel(
-            "Rueda: zoom · Arrastrar: mover · Clic: resaltar fila\n"
-            "↑/↓: fila anterior/siguiente · Esc: quitar resaltado"
-        )
-        nota.setObjectName("aviso")
-        nota.setWordWrap(True)
-        lay.addWidget(nota)
-
-        scroll = QScrollArea()
-        scroll.setWidget(contenido)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setMinimumWidth(270)
-        scroll.setMaximumWidth(420)
-        return scroll
 
     def _crear_guia(self) -> QWidget:
         w = QWidget()
@@ -599,7 +640,6 @@ class VentanaPrincipal(QMainWindow):
         self.btn_sig.clicked.connect(lambda: self.lienzo.mover_fila(1))
         self.btn_quitar.clicked.connect(lambda: self.lienzo.set_fila(None))
 
-    # =============================================================== estado
     def _figura_actual(self) -> str:
         for clave, b in self.botones_figura.items():
             if b.isChecked():
@@ -616,7 +656,6 @@ class VentanaPrincipal(QMainWindow):
         return Configuracion(figura, self.spin_tamano.value(), orient, modo, self._color_actual())
 
     def aplicar_configuracion(self, cfg: Configuracion) -> None:
-        """Pone los controles en ``cfg`` sin disparar regeneraciones intermedias."""
         self._sincronizando = True
         try:
             self.botones_figura.get(cfg.figura, self.botones_figura["hexagono"]).setChecked(True)
@@ -674,7 +713,6 @@ class VentanaPrincipal(QMainWindow):
         if c.isValid():
             self._elegir_color(c.name())
 
-    # ============================================================ regenerar
     def regenerar(self, reajustar: bool | None = None) -> None:
         if self._sincronizando:
             return
@@ -696,8 +734,8 @@ class VentanaPrincipal(QMainWindow):
 
     def _set_figura(self, figura: Figura | None, reajustar: bool) -> None:
         self.figura = figura
-        for a in (self.acc_guardar, self.acc_png, self.acc_copiar):
-            a.setEnabled(figura is not None)
+        for accion in (self.acc_guardar, self.acc_png, self.acc_copiar):
+            accion.setEnabled(figura is not None)
         self.btn_copiar.setEnabled(figura is not None)
         fila = self.lienzo.opciones.fila_resaltada
         self.lienzo.set_figura(figura, reajustar)
@@ -705,57 +743,38 @@ class VentanaPrincipal(QMainWindow):
         self.modelo.set_figura(figura)
         self._sincronizando = False
         if figura is None:
-            self.lbl_total.setText("—")
-            self.lbl_desc.setText("")
-            for k in ("Ancho real", "Alto real", "Centro", "Lado"):
-                self.datos[k].setText("—")
-            self.lbl_alto_calc.setText("")
-            self.lbl_paridad.setText("")
-            self.lbl_estado_fig.setText("")
+            self._limpiar_datos()
             return
-        cfg = figura.config
-        r = resumen(figura)
-        self.lbl_desc.setText(descripcion(cfg))
-        self.lbl_total.setText(f"{figura.total:,}".replace(",", "."))
-        self.datos["Ancho real"].setText(f"{figura.ancho} bloques")
-        self.datos["Alto real"].setText(f"{figura.alto} bloques")
-        self.datos["Centro"].setText(r["Centro"])
-        lado_clave = next((k for k in ("Lado superior", "Lados verticales") if k in r), None)
-        self.datos["Lado_et"].setVisible(lado_clave is not None)
-        self.datos["Lado"].setVisible(lado_clave is not None)
-        if lado_clave:
-            self.datos["Lado_et"].setText(lado_clave)
-            self.datos["Lado"].setText(r[lado_clave])
-
-        # Proporciones: medida pedida y dimensión calculada.
-        if cfg.figura == "circulo":
-            texto = (f"Ancho = alto = <b>{figura.ancho}</b> bloques.")
-        else:
-            girado = cfg.figura == "triangulo" and cfg.orientacion in ("izquierda", "derecha")
-            if girado:
-                texto = (f"Ancho calculado: {formato_num(figura.ancho_teorico)} → "
-                         f"<b>{figura.ancho} bloques</b><br>Alto (base): <b>{figura.alto}</b> bloques")
-            else:
-                texto = (f"Alto calculado: {formato_num(figura.alto_teorico)} → "
-                         f"<b>{figura.alto} bloques</b><br>Ancho: <b>{figura.ancho}</b> bloques")
-        self.lbl_alto_calc.setText(texto)
-        par = cfg.tamano % 2 == 0
-        if cfg.figura == "triangulo":
-            self.lbl_paridad.setText(
-                "Base par: el vértice ocupa 2 bloques." if par else "Base impar: el vértice es un solo bloque."
-            )
-        else:
-            self.lbl_paridad.setText(
-                "Tamaño par: el centro cae entre dos bloques." if par
-                else "Tamaño impar: hay un bloque central."
-            )
-        self.lbl_estado_fig.setText(f"{figura.ancho} × {figura.alto} · {figura.total} bloques")
+        self._mostrar_datos(figura)
+        self.lbl_alto_calc.setText(_texto_proporciones(figura))
+        self.lbl_paridad.setText(_texto_paridad(figura.config))
         if fila is not None and fila < figura.alto:
             self.lienzo.set_fila(fila, emitir=False)
             self._seleccionar_en_tabla(fila)
             self._describir_fila(fila)
 
-    # ============================================================ filas
+    def _limpiar_datos(self) -> None:
+        self.lbl_total.setText("—")
+        for clave in ("Ancho real", "Alto real", "Centro", "Lado"):
+            self.datos[clave].setText("—")
+        for etiqueta in (self.lbl_desc, self.lbl_alto_calc, self.lbl_paridad, self.lbl_estado_fig):
+            etiqueta.setText("")
+
+    def _mostrar_datos(self, figura: Figura) -> None:
+        r = resumen(figura)
+        self.lbl_desc.setText(descripcion(figura.config))
+        self.lbl_total.setText(f"{figura.total:,}".replace(",", "."))
+        self.datos["Ancho real"].setText(f"{figura.ancho} bloques")
+        self.datos["Alto real"].setText(f"{figura.alto} bloques")
+        self.datos["Centro"].setText(r["Centro"])
+        lado = next((k for k in ("Lado superior", "Lados verticales") if k in r), None)
+        self.datos["Lado_et"].setVisible(lado is not None)
+        self.datos["Lado"].setVisible(lado is not None)
+        if lado:
+            self.datos["Lado_et"].setText(lado)
+            self.datos["Lado"].setText(r[lado])
+        self.lbl_estado_fig.setText(f"{figura.ancho} × {figura.alto} · {figura.total} bloques")
+
     def _seleccionar_en_tabla(self, fila: int | None) -> None:
         self._sincronizando = True
         try:
@@ -791,7 +810,6 @@ class VentanaPrincipal(QMainWindow):
             f"{texto_tramos_largo(f.tramos)}"
         )
 
-    # ============================================================ cursor/zoom
     def _mostrar_cursor(self, celda) -> None:
         if celda is None or self.figura is None:
             self.lbl_cursor.setText("Pasa el ratón por la cuadrícula para ver las coordenadas.")
@@ -816,7 +834,6 @@ class VentanaPrincipal(QMainWindow):
     def _mostrar_zoom(self, px_bloque: float) -> None:
         self.lbl_zoom.setText(f"{formato_num(px_bloque, 1)} px/bloque")
 
-    # ============================================================ acciones
     def copiar_instrucciones(self) -> None:
         if self.figura is None:
             return
@@ -927,7 +944,6 @@ class VentanaPrincipal(QMainWindow):
             "Funciona sin conexión. Las figuras son aproximaciones discretas de formas regulares.",
         )
 
-    # ============================================================ ajustes
     def _cargar_ajustes(self) -> None:
         a = self.ajustes
         try:
@@ -946,7 +962,6 @@ class VentanaPrincipal(QMainWindow):
             (self.chk_numeros, "numeros"), (self.chk_auto, "auto"),
         ):
             valor = a.value(clave, True)
-            # Las señales «toggled» ya están conectadas y actualizan el lienzo.
             chk.setChecked(valor in (True, "true", "1", 1))
         geo = a.value("geometria")
         if geo is not None:

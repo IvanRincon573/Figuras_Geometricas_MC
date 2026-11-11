@@ -1,12 +1,7 @@
-"""Lienzo interactivo: cuadrícula con zoom, desplazamiento y selección de fila.
+"""Cuadrícula interactiva con zoom, desplazamiento y fila resaltada.
 
-El zoom y el desplazamiento solo cambian la transformación de la vista
-(``escala`` y ``origen``); la figura (y por tanto su número de bloques) no se
-toca nunca aquí.
-
-Internamente todo se calcula en píxeles físicos de la pantalla, y la escala se
-redondea a un número entero de píxeles por bloque a partir de 4 px: así todos
-los bloques se ven como cuadrados idénticos, sin bordes borrosos.
+Trabaja en píxeles físicos y, desde 4 px por bloque, con escala entera para que
+todos los bloques se vean como cuadrados idénticos y nítidos.
 """
 
 from __future__ import annotations
@@ -22,15 +17,12 @@ from .render import OpcionesDibujo, Paleta, dibujar_figura
 
 ESCALA_MIN = 0.25
 ESCALA_MAX = 160.0
-MARGEN_AJUSTE = 2.5  # bloques libres alrededor al ajustar (deja sitio a la numeración)
+MARGEN_AJUSTE = 2.5  # bloques libres alrededor, para la numeración
 
 
 class Lienzo(QWidget):
-    #: (x, y) base 0 de la celda bajo el cursor, o None.
     celdaBajoCursor = Signal(object)
-    #: Fila seleccionada (base 0) o None.
     filaSeleccionada = Signal(object)
-    #: Bloques por… píxeles lógicos por bloque (para mostrar el zoom).
     zoomCambiado = Signal(float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -44,15 +36,14 @@ class Lienzo(QWidget):
 
         self.figura: Figura | None = None
         self.opciones = OpcionesDibujo(fondo=Paleta.fondo)
-        self._escala = 16.0  # píxeles físicos por bloque
-        self._origen = QPointF(0, 0)  # píxel físico de la esquina de la celda (0, 0)
+        self._escala = 16.0
+        self._origen = QPointF(0, 0)
         self._arrastre_inicio: QPointF | None = None
         self._origen_inicio = QPointF(0, 0)
         self._arrastrando = False
         self._pendiente_ajuste = True
         self.mensaje_vacio = ""
 
-    # ------------------------------------------------------------------ util
     def _dpr(self) -> float:
         return self.devicePixelRatioF() or 1.0
 
@@ -82,7 +73,6 @@ class Lienzo(QWidget):
             escala = float(round(escala))
         return escala
 
-    # --------------------------------------------------------------- figura
     def set_figura(self, figura: Figura | None, reajustar: bool) -> None:
         anterior = self.figura
         self.figura = figura
@@ -93,7 +83,6 @@ class Lienzo(QWidget):
             if reajustar or anterior is None:
                 self.ajustar()
             elif anterior is not None and (anterior.ancho, anterior.alto) != (figura.ancho, figura.alto):
-                # Mantiene el centro de la figura en el mismo punto de la pantalla.
                 d_cx = (figura.centro[0] - anterior.centro[0]) * self._escala
                 d_cy = (figura.centro[1] - anterior.centro[1]) * self._escala
                 self._origen -= QPointF(d_cx, d_cy)
@@ -125,7 +114,6 @@ class Lienzo(QWidget):
         elif top + self._escala > h - margen:
             self._origen -= QPointF(0, top + self._escala - (h - margen))
 
-    # ----------------------------------------------------------------- vista
     def ajustar(self) -> None:
         """Escala y centra la figura para que quepa entera en la ventana."""
         if self.figura is None:
@@ -156,17 +144,15 @@ class Lienzo(QWidget):
         self.update()
 
     def zoom(self, factor: float, ancla: QPointF | None = None) -> None:
-        """Multiplica el zoom manteniendo fijo el punto ``ancla`` (píxeles lógicos)."""
+        """Multiplica el zoom manteniendo fijo el punto ``ancla``."""
         w, h = self._tam_fisico()
         a = self._a_fisico(ancla) if ancla is not None else QPointF(w / 2, h / 2)
         vieja = self._escala
         nueva = self._normalizar_escala(vieja * factor)
         if nueva == vieja and vieja >= 4:
-            # Con escala entera, asegura al menos 1 px de cambio.
             nueva = self._normalizar_escala(vieja + (1 if factor > 1 else -1))
         if nueva == vieja:
             return
-        # Punto de la cuadrícula bajo el ancla antes del zoom.
         gx = (a.x() - self._origen.x()) / vieja
         gy = (a.y() - self._origen.y()) / vieja
         self._escala = nueva
@@ -184,7 +170,6 @@ class Lienzo(QWidget):
             nueva = max(0, min(self.figura.alto - 1, actual + delta))
         self.set_fila(nueva)
 
-    # --------------------------------------------------------------- eventos
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         if self._pendiente_ajuste:
@@ -258,7 +243,6 @@ class Lienzo(QWidget):
         if not fue_arrastre and event.button() == Qt.MouseButton.LeftButton and self.figura:
             _, y = self.celda_en(event.position())
             if 0 <= y < self.figura.alto:
-                # Clic en la fila ya resaltada: la desmarca.
                 self.set_fila(None if y == self.opciones.fila_resaltada else y)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
