@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Configuración de PyInstaller: genera dist/FigurasBloques.exe (un solo archivo,
-# sin consola). Uso: pyinstaller FigurasBloques.spec  (o ejecuta construir_exe.bat)
+# Configuración de PyInstaller: genera dist/Hexabloq.exe (un solo archivo, sin consola).
+# Uso: pyinstaller Hexabloq.spec  (o ejecuta construir_exe.bat)
 
 # Módulos de Qt que la aplicación no usa (reduce el tamaño del ejecutable).
 EXCLUIR = [
@@ -20,11 +20,7 @@ a = Analysis(
     ["main.py"],
     pathex=[],
     binaries=[],
-    datas=[
-        ("assets/icono.ico", "assets"),
-        ("assets/icono.png", "assets"),
-        ("assets/check.svg", "assets"),
-    ],
+    datas=[("figuras_bloques/recursos", "figuras_bloques/recursos")],
     hiddenimports=["PySide6.QtSvg"],
     hookspath=[],
     hooksconfig={},
@@ -41,7 +37,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="FigurasBloques",
+    name="Hexabloq",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -54,5 +50,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="assets/icono.ico",
+    icon="figuras_bloques/recursos/marca/icono.ico",
+    version="empaquetado/version_info.txt",
 )

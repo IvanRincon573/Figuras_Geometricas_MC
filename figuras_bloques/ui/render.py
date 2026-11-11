@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from functools import lru_cache
+from types import SimpleNamespace
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
 
 from ..geometria import Figura
+from .tema import LIENZO_OSCURO, PaletaLienzo, color_qt
 
 PASOS_ETIQUETA = (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000)
 ESCALA_MIN_SEPARADORES = 5
@@ -25,23 +28,16 @@ class OpcionesDibujo:
     marco: bool = True
     fila_resaltada: int | None = None
     celda_cursor: tuple[int, int] | None = None
-    fondo: QColor | None = None
+    paleta: PaletaLienzo = LIENZO_OSCURO
+    rellenar_fondo: bool = True
 
 
-class Paleta:
-    fondo = QColor("#F2EFE6")
-    marco_relleno = QColor(0, 0, 0, 12)
-    marco_borde = QColor("#9C968A")
-    linea_menor = QColor("#D3CEC2")
-    linea_mayor = QColor("#A8A194")
-    eje_vertical = QColor(214, 69, 65, 200)
-    eje_horizontal = QColor(52, 120, 214, 200)
-    centro = QColor("#D64541")
-    resaltado_banda = QColor(255, 196, 0, 70)
-    resaltado_borde = QColor("#E69500")
-    cursor = QColor(30, 30, 30, 170)
-    numeros = QColor("#5E5A52")
-    numeros_resaltado = QColor("#B36F00")
+@lru_cache(maxsize=None)
+def colores(paleta: PaletaLienzo) -> SimpleNamespace:
+    return SimpleNamespace(**{
+        campo.name: color_qt(getattr(paleta, campo.name))
+        for campo in fields(paleta) if campo.name != "nombre"
+    })
 
 
 def paso_etiquetas(escala: float, ancho_texto: float) -> int:
@@ -69,6 +65,7 @@ class _Dibujo:
         self.ox, self.oy = origen.x(), origen.y()
         self.visible = visible
         self.opciones = opciones
+        self.c = colores(opciones.paleta)
         self.color = QColor(figura.config.color)
         self.col_min = math.floor((visible.left() - self.ox) / escala) - 1
         self.col_max = math.ceil((visible.right() - self.ox) / escala) + 1
@@ -79,11 +76,11 @@ class _Dibujo:
 
     def dibujar(self) -> None:
         o = self.opciones
-        if o.fondo is not None:
-            self.p.fillRect(self.visible, o.fondo)
+        if o.rellenar_fondo:
+            self.p.fillRect(self.visible, self.c.fondo)
         self.p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         if o.marco:
-            self.p.fillRect(self._caja(), Paleta.marco_relleno)
+            self.p.fillRect(self._caja(), self.c.marco_relleno)
         if o.cuadricula:
             self._cuadricula()
         if self.fila is not None:
@@ -140,14 +137,14 @@ class _Dibujo:
                 mayores.append(linea)
             elif con_menores:
                 menores.append(linea)
-        self.p.setPen(QPen(Paleta.linea_menor, 1))
+        self.p.setPen(QPen(self.c.linea_menor, 1))
         self.p.drawLines(menores)
-        self.p.setPen(QPen(Paleta.linea_mayor, 1))
+        self.p.setPen(QPen(self.c.linea_mayor, 1))
         self.p.drawLines(mayores)
 
     def _banda_fila(self) -> None:
         v = self.visible
-        self.p.fillRect(QRectF(v.left(), self._y(self.fila), v.width(), self.s), Paleta.resaltado_banda)
+        self.p.fillRect(QRectF(v.left(), self._y(self.fila), v.width(), self.s), self.c.resaltado_banda)
 
     def _bloques(self) -> int:
         rects = []
@@ -182,12 +179,12 @@ class _Dibujo:
         self.p.drawLines(sombras)
 
     def _borde_caja(self) -> None:
-        self.p.setPen(QPen(Paleta.marco_borde, 1, Qt.PenStyle.DashLine))
+        self.p.setPen(QPen(self.c.marco_borde, 1, Qt.PenStyle.DashLine))
         self.p.setBrush(Qt.BrushStyle.NoBrush)
         self.p.drawRect(self._caja())
 
     def _borde_fila(self) -> None:
-        self.p.setPen(QPen(Paleta.resaltado_borde, max(2.0, min(4.0, self.s / 6))))
+        self.p.setPen(QPen(self.c.resaltado_borde, max(2.0, min(4.0, self.s / 6))))
         self.p.setBrush(Qt.BrushStyle.NoBrush)
         for x0, x1 in self.figura.filas[self.fila]:
             self.p.drawRect(QRectF(self._x(x0), self._y(self.fila), (x1 - x0 + 1) * self.s, self.s))
@@ -199,18 +196,18 @@ class _Dibujo:
     def _ejes(self) -> None:
         c, v = self._centro_px(), self.visible
         grosor = max(1.5, min(3.0, self.s / 8))
-        self.p.setPen(QPen(Paleta.eje_vertical, grosor, Qt.PenStyle.DashLine))
+        self.p.setPen(QPen(self.c.eje_vertical, grosor, Qt.PenStyle.DashLine))
         self.p.drawLine(QLineF(c.x(), v.top(), c.x(), v.bottom()))
-        self.p.setPen(QPen(Paleta.eje_horizontal, grosor, Qt.PenStyle.DashLine))
+        self.p.setPen(QPen(self.c.eje_horizontal, grosor, Qt.PenStyle.DashLine))
         self.p.drawLine(QLineF(v.left(), c.y(), v.right(), c.y()))
 
     def _marca_centro(self) -> None:
         c = self._centro_px()
         r = max(4.0, min(10.0, self.s * 0.35))
         self.p.setBrush(Qt.BrushStyle.NoBrush)
-        self.p.setPen(QPen(QColor("white"), 3))
+        self.p.setPen(QPen(self.c.centro_halo, 3))
         self.p.drawEllipse(c, r, r)
-        self.p.setPen(QPen(Paleta.centro, 2))
+        self.p.setPen(QPen(self.c.centro, 2))
         self.p.drawEllipse(c, r, r)
         self.p.drawLine(QLineF(c.x() - r * 1.6, c.y(), c.x() + r * 1.6, c.y()))
         self.p.drawLine(QLineF(c.x(), c.y() - r * 1.6, c.x(), c.y() + r * 1.6))
@@ -218,7 +215,7 @@ class _Dibujo:
     def _celda_cursor(self) -> None:
         x, y = self.opciones.celda_cursor
         self.p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        self.p.setPen(QPen(Paleta.cursor, 2))
+        self.p.setPen(QPen(self.c.cursor, 2))
         self.p.setBrush(Qt.BrushStyle.NoBrush)
         self.p.drawRect(QRectF(self._x(x), self._y(y), self.s, self.s))
 
@@ -240,7 +237,7 @@ class _Dibujo:
     def _numeros_columnas(self, ancho_txt: float, alto_txt: float) -> None:
         paso = paso_etiquetas(self.s, ancho_txt)
         y_txt = max(self.visible.top() + 2, self.oy - alto_txt - 3)
-        self.p.setPen(Paleta.numeros)
+        self.p.setPen(self.c.numeros)
         for x in range(max(0, self.col_min), min(self.figura.ancho - 1, self.col_max) + 1):
             if self._etiqueta_visible(x + 1, self.figura.ancho, paso, ancho_txt):
                 rect = QRectF(self._x(x + 0.5) - ancho_txt / 2, y_txt, ancho_txt, alto_txt)
@@ -257,6 +254,6 @@ class _Dibujo:
             if not resaltada and not self._etiqueta_visible(y + 1, self.figura.alto, paso, alto_txt + 2):
                 continue
             self.p.setFont(negrita if resaltada else fuente)
-            self.p.setPen(Paleta.numeros_resaltado if resaltada else Paleta.numeros)
+            self.p.setPen(self.c.numeros_resaltado if resaltada else self.c.numeros)
             rect = QRectF(x_txt, self._y(y + 0.5) - alto_txt / 2, ancho_txt, alto_txt)
             self.p.drawText(rect, alineacion, str(y + 1))

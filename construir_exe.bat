@@ -1,5 +1,5 @@
 @echo off
-REM Genera dist\FigurasBloques.exe
+REM Genera dist\Hexabloq.exe
 REM Crea el entorno virtual si no existe, instala dependencias, pasa las pruebas y empaqueta.
 setlocal
 cd /d "%~dp0"
@@ -24,8 +24,8 @@ echo Ejecutando pruebas...
 )
 
 echo Generando ejecutable...
-".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean FigurasBloques.spec || exit /b 1
+".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean Hexabloq.spec || exit /b 1
 
 echo.
-echo Listo: dist\FigurasBloques.exe
+echo Listo: dist\Hexabloq.exe
 endlocal

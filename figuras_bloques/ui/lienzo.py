@@ -9,11 +9,12 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QWheelEvent
+from PySide6.QtGui import QFont, QMouseEvent, QPainter, QPen, QWheelEvent
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ..geometria import Figura
-from .render import OpcionesDibujo, Paleta, dibujar_figura
+from . import tema
+from .render import OpcionesDibujo, colores, dibujar_figura
 
 ESCALA_MIN = 0.25
 ESCALA_MAX = 160.0
@@ -35,7 +36,7 @@ class Lienzo(QWidget):
         self.setMinimumSize(320, 240)
 
         self.figura: Figura | None = None
-        self.opciones = OpcionesDibujo(fondo=Paleta.fondo)
+        self.opciones = OpcionesDibujo()
         self._escala = 16.0
         self._origen = QPointF(0, 0)
         self._arrastre_inicio: QPointF | None = None
@@ -105,14 +106,22 @@ class Lienzo(QWidget):
         if emitir:
             self.filaSeleccionada.emit(fila)
 
+    def set_paleta(self, paleta: tema.PaletaLienzo) -> None:
+        self.opciones.paleta = paleta
+        self.update()
+
     def _asegurar_fila_visible(self, fila: int) -> None:
-        _, h = self._tam_fisico()
-        top = self._origen.y() + fila * self._escala
+        w, h = self._tam_fisico()
         margen = 2 * self._escala
-        if top < margen:
-            self._origen += QPointF(0, margen - top)
-        elif top + self._escala > h - margen:
-            self._origen -= QPointF(0, top + self._escala - (h - margen))
+        arriba = self._origen.y() + fila * self._escala
+        if arriba < margen:
+            self._origen += QPointF(0, margen - arriba)
+        elif arriba + self._escala > h - margen:
+            self._origen -= QPointF(0, arriba + self._escala - (h - margen))
+        izquierda = self._origen.x()
+        derecha = izquierda + self.figura.ancho * self._escala
+        if derecha < margen or izquierda > w - margen:
+            self._origen.setX(round(w / 2 - self.figura.ancho * self._escala / 2))
 
     def ajustar(self) -> None:
         """Escala y centra la figura para que quepa entera en la ventana."""
@@ -181,17 +190,32 @@ class Lienzo(QWidget):
         p.scale(1 / d, 1 / d)
         w, h = self._tam_fisico()
         visible = QRectF(0, 0, w, h)
-        p.fillRect(visible, Paleta.fondo)
+        p.fillRect(visible, colores(self.opciones.paleta).fondo)
+        if self.figura is not None:
+            dibujar_figura(p, self.figura, self._escala, self._origen, visible, self.opciones)
+        p.resetTransform()
         if self.figura is None:
-            p.resetTransform()
-            p.setPen(QColor("#6B665C"))
-            f = QFont(self.font())
-            f.setPointSize(12)
-            p.setFont(f)
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.mensaje_vacio)
-            return
-        dibujar_figura(p, self.figura, self._escala, self._origen, visible, self.opciones)
+            self._pintar_mensaje(p)
+        if self.hasFocus():
+            p.setPen(QPen(tema.color_qt(tema.ACENTO), 2))
+            p.drawRect(self.rect().adjusted(1, 1, -1, -1))
         p.end()
+
+    def _pintar_mensaje(self, p: QPainter) -> None:
+        fuente = QFont(self.font())
+        fuente.setPointSize(11)
+        p.setFont(fuente)
+        p.setPen(colores(self.opciones.paleta).numeros)
+        margen = self.rect().adjusted(40, 0, -40, 0)
+        p.drawText(margen, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, self.mensaje_vacio)
+
+    def focusInEvent(self, event) -> None:  # noqa: N802
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        super().focusOutEvent(event)
+        self.update()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         delta = event.angleDelta().y()

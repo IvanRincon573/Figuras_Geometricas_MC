@@ -1,3 +1,3 @@
-"""Figuras con bloques: generador de círculos, triángulos y hexágonos pixelados."""
+"""Hexabloq: círculos, triángulos y hexágonos hechos con bloques, fila a fila."""
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

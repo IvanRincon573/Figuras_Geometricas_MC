@@ -1,984 +1,582 @@
-"""Ventana principal de la aplicación."""
+"""Ventana principal de Hexabloq."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import (
-    QAbstractTableModel,
-    QModelIndex,
-    QPointF,
-    QRectF,
-    QSettings,
-    QSize,
-    Qt,
-)
-from PySide6.QtGui import (
-    QAction,
-    QColor,
-    QGuiApplication,
-    QIcon,
-    QImage,
-    QKeySequence,
-    QPainter,
-    QPixmap,
-)
+from PySide6.QtCore import QSettings, QSize, Qt
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QButtonGroup,
-    QCheckBox,
-    QColorDialog,
-    QComboBox,
-    QDialog,
-    QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
-    QGridLayout,
+    QFrame,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
-    QPushButton,
-    QScrollArea,
     QSizePolicy,
-    QSpinBox,
     QSplitter,
-    QTableView,
-    QToolBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from .. import __version__
 from ..archivo import ErrorDeArchivo, abrir, guardar
-from ..geometria import (
-    ORIENTACION_POR_DEFECTO,
-    ORIENTACIONES,
-    TAMANO_MAXIMO,
-    TAMANO_MINIMO,
-    Configuracion,
-    ErrorDeTamano,
-    Figura,
-    descripcion,
-    generar,
-)
-from ..guia import filas_guia, formato_num, instrucciones, resumen, texto_tramos_largo
+from ..geometria import TAMANO_MAXIMO, TAMANO_MINIMO, Configuracion, ErrorDeTamano, Figura, generar
+from ..guia import formato_num, instrucciones
+from . import dialogos, recursos, tema
+from .exportar import DialogoPNG, renderizar_png
 from .lienzo import Lienzo
-from .render import OpcionesDibujo, Paleta, dibujar_figura
+from .panel_config import PanelConfiguracion
+from .panel_guia import PanelGuia
 
-COLORES = [
-    ("Hierba", "#5B8C3A"),
-    ("Piedra", "#7F7F7F"),
-    ("Madera", "#9C7246"),
-    ("Ladrillo", "#9B4A3A"),
-    ("Arena", "#D8CB95"),
-    ("Agua", "#3F6FD8"),
-    ("Oro", "#E3B53A"),
-    ("Cuarzo", "#E8E2D6"),
-    ("Obsidiana", "#2A2238"),
-    ("Lana roja", "#B33A33"),
-]
-
-TEXTO_ORIENTACION = {
-    "arriba": "Vértice arriba ▲",
-    "abajo": "Vértice abajo ▼",
-    "izquierda": "Vértice a la izquierda ◀",
-    "derecha": "Vértice a la derecha ▶",
-    "plano": "Lado plano arriba ⬣",
-    "vertice": "Vértice arriba ⬢",
-}
-
-ETIQUETA_TAMANO = {
-    "circulo": "Diámetro",
-    "triangulo": "Ancho de la base",
-    "hexagono": "Ancho total",
-}
-
-AYUDA_TAMANO = {
-    "circulo": "Bloques de lado a lado pasando por el centro.",
-    "triangulo": "Bloques que ocupa la base (un lado del triángulo).",
-    "hexagono_plano": "Bloques de vértice a vértice (izquierda a derecha).",
-    "hexagono_vertice": "Bloques de lado plano a lado plano (izquierda a derecha).",
-}
+ANCHO_PANEL = 300
+ANCHO_GUIA = 340
+TAMANO_MINIMO_VENTANA = QSize(960, 620)
+FILTRO_DISENO = f"Diseño de {tema.NOMBRE_APP} (*.json)"
 
 
-def icono_figura(figura: str, orientacion: str, color: str = "#8CC152", lado: int = 30) -> QIcon:
-    """Icono pixelado generado con la propia geometría del programa."""
-    tam = {"circulo": 11, "triangulo": 12, "hexagono": 12}[figura]
-    fig = generar(Configuracion(figura, tam, orientacion, "relleno", color))
-    pix = QPixmap(lado, lado)
-    pix.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pix)
-    s = min((lado - 2) / fig.ancho, (lado - 2) / fig.alto)
-    ox = (lado - fig.ancho * s) / 2
-    oy = (lado - fig.alto * s) / 2
-    for x, y in fig.celdas:
-        p.fillRect(QRectF(ox + x * s, oy + y * s, s, s), QColor(color))
-    p.end()
-    return QIcon(pix)
+class BarraAdaptable(QWidget):
+    """Fila de botones que oculta los textos cuando no hay espacio para mostrarlos."""
 
-
-class ModeloFilas(QAbstractTableModel):
-    CABECERAS = ("Fila", "Bloques", "Tramos (columna inicio–fin)")
-
-    def __init__(self) -> None:
+    def __init__(self, nombre_objeto: str) -> None:
         super().__init__()
-        self._filas = []
+        self.setObjectName(nombre_objeto)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._lay = QHBoxLayout(self)
+        self._lay.setContentsMargins(6, 4, 6, 4)
+        self._lay.setSpacing(2)
+        self._con_texto: list[QToolButton] = []
+        self._ancho_con_texto = 0
+        self._compacta = False
+        self._final = QHBoxLayout()
+        self._final.setSpacing(2)
 
-    def set_figura(self, figura: Figura | None) -> None:
-        self.beginResetModel()
-        self._filas = filas_guia(figura) if figura else []
-        self.endResetModel()
-
-    def rowCount(self, parent=QModelIndex()) -> int:  # noqa: N802
-        return 0 if parent.isValid() else len(self._filas)
-
-    def columnCount(self, parent=QModelIndex()) -> int:  # noqa: N802
-        return 3
-
-    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid():
-            return None
-        f = self._filas[index.row()]
-        col = index.column()
-        if role == Qt.ItemDataRole.DisplayRole:
-            if col == 0:
-                return str(f.fila)
-            if col == 1:
-                return str(f.bloques)
-            if len(f.tramos) <= 1:
-                return f.texto_tramos
-            return "   |   ".join(f"{a}–{b}" if a != b else f"{a}" for a, b in f.tramos)
-        if role == Qt.ItemDataRole.TextAlignmentRole:
-            if col < 2:
-                return int(Qt.AlignmentFlag.AlignCenter)
-            return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        if role == Qt.ItemDataRole.ToolTipRole:
-            partes = [
-                f"Tramo {i}: columnas {a} a {b} ({b - a + 1} bloque{'s' if b > a else ''})"
-                for i, (a, b) in enumerate(f.tramos, 1)
-            ]
-            return f"Fila {f.fila}: {f.bloques} bloques\n" + "\n".join(partes)
-        return None
-
-    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):  # noqa: N802
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            return self.CABECERAS[section]
-        return None
-
-
-class DialogoPNG(QDialog):
-    def __init__(self, parent: QWidget, figura: Figura, cuadricula: bool) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Exportar imagen PNG")
-        self.figura = figura
-        lay = QVBoxLayout(self)
-        form = QFormLayout()
-        self.px = QSpinBox()
-        self.px.setRange(2, 64)
-        self.px.setValue(20 if max(figura.ancho, figura.alto) <= 200 else 8)
-        self.px.setSuffix(" px por bloque")
-        form.addRow("Tamaño de cada bloque:", self.px)
-        self.cuadricula = QCheckBox("Incluir cuadrícula")
-        self.cuadricula.setChecked(cuadricula)
-        self.numeros = QCheckBox("Incluir numeración de filas y columnas")
-        self.transparente = QCheckBox("Fondo transparente")
-        lay.addLayout(form)
-        for w in (self.cuadricula, self.numeros, self.transparente):
-            lay.addWidget(w)
-        self.info = QLabel()
-        self.info.setObjectName("aviso")
-        lay.addWidget(self.info)
-        botones = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+    def boton(self, accion: QAction, texto_visible: bool = True, nombre: str = "herramienta") -> QToolButton:
+        boton = QToolButton()
+        boton.setObjectName(nombre)
+        boton.setDefaultAction(accion)
+        boton.setIconSize(QSize(18, 18))
+        boton.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon if texto_visible else Qt.ToolButtonStyle.ToolButtonIconOnly
         )
-        botones.button(QDialogButtonBox.StandardButton.Save).setText("Guardar PNG…")
-        botones.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
-        botones.accepted.connect(self.accept)
-        botones.rejected.connect(self.reject)
-        lay.addWidget(botones)
-        self.px.valueChanged.connect(self._actualizar_info)
-        self.numeros.toggled.connect(self._actualizar_info)
-        self._actualizar_info()
+        if texto_visible:
+            self._con_texto.append(boton)
+        self._lay.addWidget(boton)
+        return boton
 
-    def margen(self) -> int:
-        return 3 if self.numeros.isChecked() else 1
+    def separador(self) -> None:
+        linea = QFrame()
+        linea.setObjectName("separador")
+        linea.setFixedHeight(20)
+        self._lay.addSpacing(4)
+        self._lay.addWidget(linea)
+        self._lay.addSpacing(4)
 
-    def tamano_imagen(self) -> tuple[int, int]:
-        m = self.margen()
-        s = self.px.value()
-        return (self.figura.ancho + 2 * m) * s, (self.figura.alto + 2 * m) * s
+    def widget(self, w: QWidget) -> None:
+        self._lay.addWidget(w)
 
-    def _actualizar_info(self) -> None:
-        w, h = self.tamano_imagen()
-        texto = f"Imagen de {w} × {h} píxeles."
-        if max(w, h) > 20000:
-            texto += " Demasiado grande: reduce los píxeles por bloque."
-        self.info.setText(texto)
+    def espacio(self, px: int) -> None:
+        self._lay.addSpacing(px)
 
-    def accept(self) -> None:
-        if max(self.tamano_imagen()) > 20000:
-            QMessageBox.warning(
-                self, "Imagen demasiado grande",
-                "La imagen superaría los 20 000 píxeles de lado. Reduce los píxeles por bloque.",
-            )
-            return
-        super().accept()
+    def cerrar(self) -> None:
+        self._lay.addStretch(1)
+        self._lay.addLayout(self._final)
 
+    def al_final(self, w: QWidget) -> None:
+        self._final.addWidget(w)
 
-def _texto_proporciones(figura: Figura) -> str:
-    cfg = figura.config
-    if cfg.figura == "circulo":
-        return f"Ancho = alto = <b>{figura.ancho}</b> bloques."
-    if cfg.figura == "triangulo" and cfg.orientacion in ("izquierda", "derecha"):
-        return (
-            f"Ancho calculado: {formato_num(figura.ancho_teorico)} → <b>{figura.ancho} bloques</b>"
-            f"<br>Alto (base): <b>{figura.alto}</b> bloques"
-        )
-    return (
-        f"Alto calculado: {formato_num(figura.alto_teorico)} → <b>{figura.alto} bloques</b>"
-        f"<br>Ancho: <b>{figura.ancho}</b> bloques"
-    )
-
-
-def _texto_paridad(cfg: Configuracion) -> str:
-    par = cfg.tamano % 2 == 0
-    if cfg.figura == "triangulo":
-        return "Base par: el vértice ocupa 2 bloques." if par else "Base impar: el vértice es un solo bloque."
-    return "Tamaño par: el centro cae entre dos bloques." if par else "Tamaño impar: hay un bloque central."
-
-
-def renderizar_png(
-    figura: Figura, px: int, cuadricula: bool, numeros: bool, transparente: bool
-) -> QImage:
-    """Imagen de la figura, sin ejes, centro ni resaltados (solo bloques)."""
-    m = 3 if numeros else 1
-    w = (figura.ancho + 2 * m) * px
-    h = (figura.alto + 2 * m) * px
-    img = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
-    img.fill(Qt.GlobalColor.transparent if transparente else Paleta.fondo)
-    p = QPainter(img)
-    opciones = OpcionesDibujo(
-        cuadricula=cuadricula, ejes=False, centro=False, numeros=numeros, marco=False, fondo=None
-    )
-    dibujar_figura(p, figura, px, QPointF(m * px, m * px), QRectF(0, 0, w, h), opciones)
-    p.end()
-    return img
-
-
-def _etiqueta_aviso() -> QLabel:
-    etiqueta = QLabel()
-    etiqueta.setObjectName("aviso")
-    etiqueta.setWordWrap(True)
-    return etiqueta
-
-
-def _seccion(texto: str) -> QLabel:
-    l = QLabel(texto.upper())
-    l.setObjectName("seccion")
-    return l
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if not self._compacta:
+            self._ancho_con_texto = self._lay.sizeHint().width()
+        compacta = self.width() < self._ancho_con_texto
+        if compacta != self._compacta:
+            self._compacta = compacta
+            estilo = (Qt.ToolButtonStyle.ToolButtonIconOnly if compacta
+                      else Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            for boton in self._con_texto:
+                boton.setToolButtonStyle(estilo)
 
 
 class VentanaPrincipal(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Figuras con bloques")
-        self.resize(1440, 880)
-        self.setMinimumSize(980, 620)
-        self.ajustes = QSettings("FigurasBloques", "FigurasBloques")
+        self.ajustes = QSettings()
+        self.setMinimumSize(TAMANO_MINIMO_VENTANA)
         self.figura: Figura | None = None
-        self._sincronizando = False
-        self._ruta_actual: Path | None = None
+        self._ruta: Path | None = None
+        self._config_base = Configuracion()
 
         self.lienzo = Lienzo()
-        self.lienzo.mensaje_vacio = "Corrige el tamaño para ver la figura."
-        self.modelo = ModeloFilas()
+        self.lienzo.mensaje_vacio = "No hay figura que mostrar. Corrige el tamaño en el panel de la izquierda."
+        self.panel = PanelConfiguracion()
+        self.guia = PanelGuia()
 
         self._crear_acciones()
-        self._crear_menus()
-        self._crear_barra()
-        panel = self._crear_panel()
-        guia = self._crear_guia()
-
-        divisor = QSplitter(Qt.Orientation.Horizontal)
-        divisor.addWidget(panel)
-        divisor.addWidget(self.lienzo)
-        divisor.addWidget(guia)
-        divisor.setStretchFactor(0, 0)
-        divisor.setStretchFactor(1, 1)
-        divisor.setStretchFactor(2, 0)
-        divisor.setCollapsible(1, False)
-        divisor.setSizes([300, 800, 360])
-        self.divisor = divisor
-        self.setCentralWidget(divisor)
-
+        self.setMenuWidget(self._crear_barra_superior())
+        self.setCentralWidget(self._crear_cuerpo())
         self._crear_estado()
         self._conectar()
         self._cargar_ajustes()
         self.regenerar(reajustar=True)
+        self._marcar_guardado()
+
+    def _accion(self, texto, icono=None, atajos=(), consejo="", slot=None, marcable=False, destino=None):
+        accion = QAction(texto, destino or self)
+        if icono:
+            accion.setIcon(recursos.icono(icono))
+        if atajos:
+            accion.setShortcuts([QKeySequence(a) for a in atajos])
+        teclas = " · ".join(atajos)
+        accion.setToolTip(f"{consejo or texto} ({teclas})" if teclas else (consejo or texto))
+        accion.setCheckable(marcable)
+        if slot:
+            (accion.toggled if marcable else accion.triggered).connect(slot)
+        (destino or self).addAction(accion)
+        return accion
 
     def _crear_acciones(self) -> None:
-        def accion(texto, atajo=None, slot=None, tip=None):
-            a = QAction(texto, self)
-            if atajo:
-                a.setShortcut(QKeySequence(atajo))
-            if slot:
-                a.triggered.connect(slot)
-            if tip:
-                a.setStatusTip(tip)
-                a.setToolTip(f"{tip} ({QKeySequence(atajo).toString()})" if atajo else tip)
-            return a
+        a = self._accion
+        self.acc_nuevo = a("Nuevo", "nuevo", ("Ctrl+N",), "Empezar un diseño nuevo", self.nuevo)
+        self.acc_abrir = a("Abrir", "abrir", ("Ctrl+O",), "Abrir un diseño guardado", self.abrir_diseno)
+        self.acc_guardar = a("Guardar", "guardar", ("Ctrl+S",), "Guardar el diseño en JSON", self.guardar)
+        self.acc_guardar_como = a("Guardar como…", "guardar", ("Ctrl+Shift+S",), "Guardar con otro nombre",
+                                  self.guardar_como)
+        self.acc_png = a("Exportar PNG", "exportar", ("Ctrl+E",), "Exportar la figura como imagen PNG",
+                         self.exportar_png)
+        self.acc_copiar = a("Copiar instrucciones", "copiar", ("Ctrl+Shift+C",), "Copiar la guía por filas",
+                            self.copiar_instrucciones)
+        self.acc_salir = a("Salir", None, ("Ctrl+Q",), "Cerrar la aplicación", self.close)
+        self.acc_acercar = a("Acercar", "zoom_mas", ("Ctrl++", "Ctrl+="), "Acercar", lambda: self.lienzo.zoom(1.25))
+        self.acc_alejar = a("Alejar", "zoom_menos", ("Ctrl+-",), "Alejar", lambda: self.lienzo.zoom(1 / 1.25))
+        self.acc_ajustar = a("Ajustar", "ajustar", ("Ctrl+0",), "Ajustar la figura a la ventana (F)",
+                             self.lienzo.ajustar)
+        self.acc_centrar = a("Centrar", "centrar", (), "Centrar la figura sin cambiar el zoom (C)",
+                             self.lienzo.centrar)
+        self.acc_guia = a("Guía", "panel_guia", ("Ctrl+B",), "Mostrar u ocultar la guía de construcción",
+                          self._mostrar_guia, marcable=True)
+        self.acc_ayuda = a("Cómo se miden las figuras", "ayuda", ("F1",), "", lambda: dialogos.mostrar_ayuda(self))
+        self.acc_atajos = a("Atajos de teclado", "teclado", ("Ctrl+/",), "", lambda: dialogos.mostrar_atajos(self))
+        self.acc_acerca = a(f"Acerca de {tema.NOMBRE_APP}", "info", (), "",
+                            lambda: dialogos.mostrar_acerca_de(self))
+        a("Ir al tamaño", None, ("Ctrl+L",), "", lambda: self.panel.enfocar_tamano())
+        a("Alternar contorno y relleno", None, ("Ctrl+T",), "", lambda: self.panel.alternar_modo())
+        for i, figura in enumerate(("hexagono", "circulo", "triangulo"), 1):
+            a(f"Figura {i}", None, (f"Ctrl+{i}",), "", lambda _=False, f=figura: self.panel.seleccionar_figura(f))
 
-        self.acc_abrir = accion("Abrir diseño…", "Ctrl+O", self.abrir_diseno, "Abrir un diseño JSON")
-        self.acc_guardar = accion("Guardar diseño…", "Ctrl+S", self.guardar_diseno, "Guardar el diseño en JSON")
-        self.acc_png = accion("Exportar PNG…", "Ctrl+E", self.exportar_png, "Exportar la figura como imagen PNG")
-        self.acc_copiar = accion("Copiar instrucciones", "Ctrl+Shift+C", self.copiar_instrucciones,
-                                 "Copiar la guía por filas al portapapeles")
-        self.acc_salir = accion("Salir", "Ctrl+Q", self.close)
-        self.acc_centrar = accion("Centrar", "C", self.lienzo.centrar, "Centrar la figura sin cambiar el zoom")
-        self.acc_ajustar = accion("Ajustar a la ventana", "F", self.lienzo.ajustar,
-                                  "Ajustar el zoom para ver la figura completa")
-        self.acc_mas = accion("Acercar", "Ctrl++", lambda: self.lienzo.zoom(1.25), "Acercar")
-        self.acc_menos = accion("Alejar", "Ctrl+-", lambda: self.lienzo.zoom(1 / 1.25), "Alejar")
-        self.acc_ayuda = accion("Cómo se miden las figuras", "F1", self.mostrar_ayuda)
-        self.acc_acerca = accion("Acerca de", None, self.acerca_de)
+    def _acciones_lienzo(self, zona: QWidget) -> None:
+        def interruptor(texto, icono, tecla, consejo, slot, marcada=True):
+            accion = self._accion(texto, icono, (tecla,), consejo, slot, marcable=True, destino=zona)
+            accion.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            accion.setChecked(marcada)
+            return accion
 
-    def _crear_menus(self) -> None:
-        mb = self.menuBar()
-        m = mb.addMenu("&Archivo")
-        m.addActions([self.acc_abrir, self.acc_guardar])
-        m.addSeparator()
-        m.addActions([self.acc_png, self.acc_copiar])
-        m.addSeparator()
-        m.addAction(self.acc_salir)
-        v = mb.addMenu("&Vista")
-        v.addActions([self.acc_centrar, self.acc_ajustar, self.acc_mas, self.acc_menos])
-        a = mb.addMenu("A&yuda")
-        a.addActions([self.acc_ayuda, self.acc_acerca])
+        def opcion(nombre):
+            return lambda valor: self.lienzo.set_opcion(nombre, valor)
 
-    def _crear_barra(self) -> None:
-        tb = QToolBar("Herramientas")
-        tb.setMovable(False)
-        tb.setIconSize(QSize(18, 18))
-        tb.addAction(self.acc_abrir)
-        tb.addAction(self.acc_guardar)
-        tb.addAction(self.acc_png)
-        tb.addSeparator()
-        tb.addAction(self.acc_menos)
-        self.lbl_zoom = QLabel("100 %")
-        self.lbl_zoom.setMinimumWidth(110)
-        self.lbl_zoom.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tb.addWidget(self.lbl_zoom)
-        tb.addAction(self.acc_mas)
-        tb.addAction(self.acc_centrar)
-        tb.addAction(self.acc_ajustar)
-        tb.addSeparator()
-        self.chk_cuadricula = QCheckBox("Cuadrícula")
-        self.chk_ejes = QCheckBox("Ejes")
-        self.chk_centro = QCheckBox("Centro")
-        self.chk_numeros = QCheckBox("Numeración")
-        self.chk_auto = QCheckBox("Ajuste automático")
-        self.chk_auto.setToolTip("Reajusta el zoom cada vez que cambia el tamaño de la figura")
-        for chk in (self.chk_cuadricula, self.chk_ejes, self.chk_centro, self.chk_numeros, self.chk_auto):
-            chk.setChecked(True)
-            tb.addWidget(chk)
-            espacio = QWidget()
-            espacio.setFixedWidth(6)
-            tb.addWidget(espacio)
-        self.addToolBar(tb)
+        self.acc_cuadricula = interruptor("Cuadrícula", "cuadricula", "G", "Mostrar u ocultar la cuadrícula",
+                                          opcion("cuadricula"))
+        self.acc_ejes = interruptor("Ejes", "ejes", "X", "Mostrar u ocultar los ejes que pasan por el centro",
+                                    opcion("ejes"))
+        self.acc_centro = interruptor("Centro", "centro", "M", "Mostrar u ocultar la marca del centro",
+                                      opcion("centro"))
+        self.acc_numeros = interruptor("Números", "numeros", "N", "Numeración de filas y columnas",
+                                       opcion("numeros"))
+        self.acc_fondo_claro = interruptor("Fondo claro", "lienzo", "B",
+                                           "Alternar el fondo de la cuadrícula entre oscuro y claro",
+                                           self._cambiar_fondo, marcada=False)
+        self.acc_auto = interruptor("Auto-ajuste", "ajustar", "A",
+                                    "Reencuadrar la vista cuando cambian el tamaño o la figura", None)
+        for tecla, slot in (("F", self.lienzo.ajustar), ("C", self.lienzo.centrar)):
+            atajo = QAction(zona)
+            atajo.setShortcut(QKeySequence(tecla))
+            atajo.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            atajo.triggered.connect(slot)
+            zona.addAction(atajo)
 
-    def _crear_panel(self) -> QWidget:
-        contenido = QWidget()
-        contenido.setObjectName("panel")
-        lay = QVBoxLayout(contenido)
-        lay.setContentsMargins(14, 12, 14, 14)
+    def _crear_barra_superior(self) -> QWidget:
+        barra = BarraAdaptable("barraSuperior")
+        barra.layout().setContentsMargins(14, 6, 10, 6)
+        logo = QLabel()
+        logo.setPixmap(recursos.logo(26))
+        logo.setAccessibleName(tema.NOMBRE_APP)
+        nombre = QLabel(tema.NOMBRE_APP)
+        nombre.setObjectName("nombreApp")
+        self.lbl_documento = QLabel()
+        self.lbl_documento.setObjectName("nombreArchivo")
+        barra.widget(logo)
+        barra.espacio(6)
+        barra.widget(nombre)
+        barra.espacio(10)
+        barra.widget(self.lbl_documento)
+        barra.separador()
+        for accion in (self.acc_nuevo, self.acc_abrir, self.acc_guardar, self.acc_png):
+            barra.boton(accion, nombre="accionBarra")
+        barra.cerrar()
+        boton_guia = QToolButton()
+        boton_guia.setObjectName("herramienta")
+        boton_guia.setDefaultAction(self.acc_guia)
+        boton_guia.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        boton_guia.setIconSize(QSize(18, 18))
+        barra.al_final(boton_guia)
+        barra.al_final(self._crear_boton_ayuda())
+        return barra
+
+    def _crear_boton_ayuda(self) -> QToolButton:
+        menu = QMenu(self)
+        menu.addActions([self.acc_ayuda, self.acc_atajos])
+        menu.addSeparator()
+        menu.addActions([self.acc_guardar_como, self.acc_copiar])
+        menu.addSeparator()
+        menu.addAction(self.acc_acerca)
+        boton = QToolButton()
+        boton.setObjectName("accionBarra")
+        boton.setIcon(recursos.icono("ayuda"))
+        boton.setIconSize(QSize(18, 18))
+        boton.setToolTip("Ayuda, atajos e información")
+        boton.setAccessibleName("Ayuda")
+        boton.setMenu(menu)
+        boton.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        return boton
+
+    def _crear_cuerpo(self) -> QSplitter:
+        self.divisor = QSplitter(Qt.Orientation.Horizontal)
+        self.divisor.addWidget(self.panel)
+        self.divisor.addWidget(self._crear_zona_lienzo())
+        self.divisor.addWidget(self.guia)
+        self.divisor.setStretchFactor(1, 1)
+        self.divisor.setCollapsible(0, False)
+        self.divisor.setCollapsible(1, False)
+        self.divisor.setSizes([ANCHO_PANEL, 800, ANCHO_GUIA])
+        return self.divisor
+
+    def _crear_zona_lienzo(self) -> QWidget:
+        zona = QWidget()
+        zona.setObjectName("zonaLienzo")
+        zona.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._acciones_lienzo(zona)
+        lay = QVBoxLayout(zona)
+        lay.setContentsMargins(10, 10, 10, 10)
         lay.setSpacing(8)
-
-        titulo = QLabel("Figuras con bloques")
-        titulo.setObjectName("titulo")
-        sub = QLabel("Plantillas pixeladas para construir")
-        sub.setObjectName("subtitulo")
-        lay.addWidget(titulo)
-        lay.addWidget(sub)
-
-        for seccion in (
-            self._seccion_figura,
-            self._seccion_tamano,
-            self._seccion_orientacion,
-            self._seccion_proporciones,
-            self._seccion_modo,
-            self._seccion_color,
-        ):
-            seccion(lay)
-
-        lay.addStretch(1)
-        nota = QLabel(
-            "Rueda: zoom · Arrastrar: mover · Clic: resaltar fila\n"
-            "↑/↓: fila anterior/siguiente · Esc: quitar resaltado"
-        )
-        nota.setObjectName("aviso")
-        nota.setWordWrap(True)
-        lay.addWidget(nota)
-
-        scroll = QScrollArea()
-        scroll.setWidget(contenido)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setMinimumWidth(270)
-        scroll.setMaximumWidth(420)
-        return scroll
-
-    def _seccion_figura(self, lay: QVBoxLayout) -> None:
-        lay.addWidget(_seccion("Figura"))
-        fila = QHBoxLayout()
-        fila.setSpacing(6)
-        self.grupo_figura = QButtonGroup(self)
-        self.botones_figura: dict[str, QToolButton] = {}
-        for clave, texto, orient in (
-            ("hexagono", "Hexágono", "plano"),
-            ("circulo", "Círculo", ""),
-            ("triangulo", "Triángulo", "arriba"),
-        ):
-            b = QToolButton()
-            b.setObjectName("figura")
-            b.setText(texto)
-            b.setIcon(icono_figura(clave, orient))
-            b.setIconSize(QSize(30, 30))
-            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-            b.setCheckable(True)
-            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            self.grupo_figura.addButton(b)
-            self.botones_figura[clave] = b
-            fila.addWidget(b)
-        lay.addLayout(fila)
-
-    def _seccion_tamano(self, lay: QVBoxLayout) -> None:
-        lay.addWidget(_seccion("Tamaño"))
-        self.lbl_tamano = QLabel()
-        lay.addWidget(self.lbl_tamano)
-        self.spin_tamano = QSpinBox()
-        self.spin_tamano.setObjectName("tamano")
-        # Admite valores fuera de 1-1000 para poder explicar por qué no son válidos.
-        self.spin_tamano.setRange(0, 99999)
-        self.spin_tamano.setSuffix(" bloques")
-        self.spin_tamano.setAccelerated(True)
-        lay.addWidget(self.spin_tamano)
-        self.lbl_ayuda_tamano = _etiqueta_aviso()
-        lay.addWidget(self.lbl_ayuda_tamano)
-        lay.addLayout(self._botones_incremento())
-        self.lbl_error = QLabel()
-        self.lbl_error.setObjectName("error")
-        self.lbl_error.setWordWrap(True)
-        self.lbl_error.hide()
-        lay.addWidget(self.lbl_error)
-        self.lbl_paridad = _etiqueta_aviso()
-        lay.addWidget(self.lbl_paridad)
-
-    def _botones_incremento(self) -> QGridLayout:
-        rejilla = QGridLayout()
-        rejilla.setSpacing(4)
-        for i, delta in enumerate((-10, -1, 1, 10)):
-            b = QPushButton(f"{delta:+d}".replace("-", "−"))
-            accion = "Sumar" if delta > 0 else "Restar"
-            plural = "s" if abs(delta) > 1 else ""
-            b.setToolTip(f"{accion} {abs(delta)} bloque{plural}")
-            b.clicked.connect(lambda _=False, d=delta: self._sumar_tamano(d))
-            rejilla.addWidget(b, 0, i)
-        return rejilla
-
-    def _sumar_tamano(self, delta: int) -> None:
-        nuevo = self.spin_tamano.value() + delta
-        self.spin_tamano.setValue(max(TAMANO_MINIMO, min(TAMANO_MAXIMO, nuevo)))
-
-    def _seccion_orientacion(self, lay: QVBoxLayout) -> None:
-        self.sec_orientacion = _seccion("Orientación")
-        lay.addWidget(self.sec_orientacion)
-        self.combo_orient = QComboBox()
-        lay.addWidget(self.combo_orient)
-
-    def _seccion_proporciones(self, lay: QVBoxLayout) -> None:
-        lay.addWidget(_seccion("Proporciones"))
-        self.lbl_alto_calc = QLabel()
-        self.lbl_alto_calc.setWordWrap(True)
-        self.lbl_alto_calc.setTextFormat(Qt.TextFormat.RichText)
-        lay.addWidget(self.lbl_alto_calc)
-
-    def _seccion_modo(self, lay: QVBoxLayout) -> None:
-        lay.addWidget(_seccion("Modo"))
-        fila = QHBoxLayout()
-        self.grupo_modo = QButtonGroup(self)
-        self.btn_contorno = QPushButton("Contorno")
-        self.btn_relleno = QPushButton("Relleno")
-        for b in (self.btn_contorno, self.btn_relleno):
-            b.setCheckable(True)
-            self.grupo_modo.addButton(b)
-            fila.addWidget(b)
-        lay.addLayout(fila)
-
-    def _seccion_color(self, lay: QVBoxLayout) -> None:
-        lay.addWidget(_seccion("Color de los bloques"))
-        rejilla = QGridLayout()
-        rejilla.setSpacing(6)
-        self.grupo_color = QButtonGroup(self)
-        self.muestras: dict[str, QPushButton] = {}
-        for i, (nombre, hexa) in enumerate(COLORES):
-            b = QPushButton()
-            b.setObjectName("muestra")
-            b.setCheckable(True)
-            b.setToolTip(f"{nombre} ({hexa})")
-            b.setStyleSheet(f"background: {hexa};")
-            b.clicked.connect(lambda _=False, h=hexa: self._elegir_color(h))
-            self.grupo_color.addButton(b)
-            self.muestras[hexa] = b
-            rejilla.addWidget(b, i // 5, i % 5)
-        lay.addLayout(rejilla)
-        self.btn_color = QPushButton("Otro color…")
-        self.btn_color.clicked.connect(self._dialogo_color)
-        lay.addWidget(self.btn_color)
-
-    def _crear_guia(self) -> QWidget:
-        w = QWidget()
-        w.setObjectName("guia")
-        w.setMinimumWidth(300)
-        lay = QVBoxLayout(w)
-        lay.setContentsMargins(14, 12, 14, 14)
-        lay.setSpacing(8)
-
-        titulo = QLabel("Guía de construcción")
-        titulo.setObjectName("titulo")
-        lay.addWidget(titulo)
-        self.lbl_desc = QLabel()
-        self.lbl_desc.setObjectName("subtitulo")
-        self.lbl_desc.setWordWrap(True)
-        lay.addWidget(self.lbl_desc)
-
-        total_box = QHBoxLayout()
-        etiqueta_total = QLabel("Bloques necesarios")
-        etiqueta_total.setObjectName("etiquetaDato")
-        self.lbl_total = QLabel("—")
-        self.lbl_total.setObjectName("datoGrande")
-        total_box.addWidget(etiqueta_total)
-        total_box.addStretch(1)
-        total_box.addWidget(self.lbl_total)
-        lay.addLayout(total_box)
-
-        self.form_datos = QFormLayout()
-        self.form_datos.setHorizontalSpacing(12)
-        self.form_datos.setVerticalSpacing(4)
-        self.datos: dict[str, QLabel] = {}
-        for clave in ("Ancho real", "Alto real", "Centro", "Lado"):
-            et = QLabel(clave)
-            et.setObjectName("etiquetaDato")
-            val = QLabel("—")
-            val.setObjectName("dato")
-            val.setWordWrap(True)
-            self.form_datos.addRow(et, val)
-            self.datos[clave] = val
-            self.datos[clave + "_et"] = et
-        lay.addLayout(self.form_datos)
-
-        lay.addWidget(_seccion("Por filas (de arriba abajo)"))
-        self.tabla = QTableView()
-        self.tabla.setModel(self.modelo)
-        self.tabla.setAlternatingRowColors(True)
-        self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tabla.verticalHeader().setVisible(False)
-        self.tabla.verticalHeader().setDefaultSectionSize(26)
-        cab = self.tabla.horizontalHeader()
-        cab.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        cab.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        cab.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        lay.addWidget(self.tabla, 1)
-
-        nav = QHBoxLayout()
-        self.btn_ant = QPushButton("▲ Anterior")
-        self.btn_sig = QPushButton("Siguiente ▼")
-        self.btn_quitar = QPushButton("Quitar")
-        self.btn_ant.setToolTip("Resaltar la fila anterior (↑)")
-        self.btn_sig.setToolTip("Resaltar la fila siguiente (↓)")
-        self.btn_quitar.setToolTip("Quitar el resaltado (Esc)")
-        for b in (self.btn_ant, self.btn_sig, self.btn_quitar):
-            nav.addWidget(b)
-        lay.addLayout(nav)
-        self.lbl_fila = QLabel("Haz clic en una fila de la tabla o del dibujo para seguirla.")
-        self.lbl_fila.setObjectName("aviso")
-        self.lbl_fila.setWordWrap(True)
-        lay.addWidget(self.lbl_fila)
-
-        self.btn_copiar = QPushButton("Copiar instrucciones")
-        self.btn_copiar.setObjectName("primario")
-        self.btn_copiar.clicked.connect(self.copiar_instrucciones)
-        lay.addWidget(self.btn_copiar)
-        return w
+        barra = BarraAdaptable("barraLienzo")
+        barra.boton(self.acc_alejar, texto_visible=False)
+        barra.boton(self.acc_acercar, texto_visible=False)
+        barra.boton(self.acc_ajustar)
+        barra.boton(self.acc_centrar)
+        barra.separador()
+        for accion in (self.acc_cuadricula, self.acc_ejes, self.acc_centro, self.acc_numeros):
+            barra.boton(accion)
+        barra.separador()
+        barra.boton(self.acc_fondo_claro)
+        barra.boton(self.acc_auto)
+        barra.cerrar()
+        lay.addWidget(barra)
+        lay.addWidget(self.lienzo, 1)
+        return zona
 
     def _crear_estado(self) -> None:
-        sb = self.statusBar()
-        self.lbl_cursor = QLabel("Pasa el ratón por la cuadrícula para ver las coordenadas.")
-        sb.addWidget(self.lbl_cursor, 1)
-        self.lbl_estado_fig = QLabel()
-        sb.addPermanentWidget(self.lbl_estado_fig)
+        estado = self.statusBar()
+        self.lbl_cursor = QLabel()
+        self.lbl_cursor.setMinimumWidth(80)
+        self.lbl_figura = QLabel()
+        self.lbl_zoom = QLabel()
+        estado.addWidget(self.lbl_cursor, 1)
+        estado.addPermanentWidget(self.lbl_figura)
+        estado.addPermanentWidget(self.lbl_zoom)
+        self._mostrar_cursor(None)
 
     def _conectar(self) -> None:
-        self.grupo_figura.buttonClicked.connect(self._cambio_figura)
-        self.spin_tamano.valueChanged.connect(lambda _v: self.regenerar())
-        self.combo_orient.currentIndexChanged.connect(lambda _i: self.regenerar())
-        self.grupo_modo.buttonClicked.connect(lambda _b: self.regenerar(reajustar=False))
-        self.chk_cuadricula.toggled.connect(lambda v: self.lienzo.set_opcion("cuadricula", v))
-        self.chk_ejes.toggled.connect(lambda v: self.lienzo.set_opcion("ejes", v))
-        self.chk_centro.toggled.connect(lambda v: self.lienzo.set_opcion("centro", v))
-        self.chk_numeros.toggled.connect(lambda v: self.lienzo.set_opcion("numeros", v))
-        self.chk_auto.toggled.connect(lambda v: v and self.lienzo.ajustar())
+        self.panel.cambiado.connect(self._al_cambiar_parametros)
         self.lienzo.celdaBajoCursor.connect(self._mostrar_cursor)
-        self.lienzo.filaSeleccionada.connect(self._fila_desde_lienzo)
+        self.lienzo.filaSeleccionada.connect(self.guia.seleccionar_fila)
         self.lienzo.zoomCambiado.connect(self._mostrar_zoom)
-        self.tabla.selectionModel().currentRowChanged.connect(self._fila_desde_tabla)
-        self.btn_ant.clicked.connect(lambda: self.lienzo.mover_fila(-1))
-        self.btn_sig.clicked.connect(lambda: self.lienzo.mover_fila(1))
-        self.btn_quitar.clicked.connect(lambda: self.lienzo.set_fila(None))
+        self.guia.filaElegida.connect(lambda fila: self.lienzo.set_fila(fila, emitir=False))
+        self.guia.copiarPedido.connect(self.copiar_instrucciones)
+        self.divisor.splitterMoved.connect(self._al_mover_divisor)
 
-    def _figura_actual(self) -> str:
-        for clave, b in self.botones_figura.items():
-            if b.isChecked():
-                return clave
-        return "hexagono"
+    def _al_cambiar_parametros(self, afecta_geometria: bool) -> None:
+        self.regenerar(reajustar=afecta_geometria and self.acc_auto.isChecked())
 
-    def _color_actual(self) -> str:
-        return getattr(self, "_color", COLORES[0][1])
-
-    def configuracion(self) -> Configuracion:
-        figura = self._figura_actual()
-        orient = self.combo_orient.currentData() or ORIENTACION_POR_DEFECTO[figura]
-        modo = "relleno" if self.btn_relleno.isChecked() else "contorno"
-        return Configuracion(figura, self.spin_tamano.value(), orient, modo, self._color_actual())
-
-    def aplicar_configuracion(self, cfg: Configuracion) -> None:
-        self._sincronizando = True
+    def regenerar(self, reajustar: bool = False) -> None:
         try:
-            self.botones_figura.get(cfg.figura, self.botones_figura["hexagono"]).setChecked(True)
-            self._rellenar_orientaciones(cfg.figura, cfg.orientacion)
-            self.spin_tamano.setValue(cfg.tamano)
-            (self.btn_relleno if cfg.modo == "relleno" else self.btn_contorno).setChecked(True)
-            self._color = cfg.color
-            self._marcar_muestra()
-        finally:
-            self._sincronizando = False
-
-    def _rellenar_orientaciones(self, figura: str, actual: str) -> None:
-        self.combo_orient.blockSignals(True)
-        self.combo_orient.clear()
-        for o in ORIENTACIONES[figura]:
-            if o:
-                self.combo_orient.addItem(TEXTO_ORIENTACION[o], o)
-        idx = self.combo_orient.findData(actual)
-        self.combo_orient.setCurrentIndex(max(0, idx))
-        self.combo_orient.blockSignals(False)
-        tiene = figura != "circulo"
-        self.combo_orient.setVisible(tiene)
-        self.sec_orientacion.setVisible(tiene)
-
-    def _cambio_figura(self, _boton=None) -> None:
-        figura = self._figura_actual()
-        actual = self.combo_orient.currentData()
-        self._rellenar_orientaciones(figura, actual if actual in ORIENTACIONES[figura] else ORIENTACION_POR_DEFECTO[figura])
-        self.regenerar(reajustar=True)
-
-    def _elegir_color(self, hexa: str) -> None:
-        self._color = hexa.upper()
-        self._marcar_muestra()
-        if self.figura is not None:
-            self.regenerar(reajustar=False)
-
-    def _marcar_muestra(self) -> None:
-        color = self._color_actual().upper()
-        b = self.muestras.get(color)
-        if b is not None:
-            b.setChecked(True)
-        else:
-            self.grupo_color.setExclusive(False)
-            for m in self.muestras.values():
-                m.setChecked(False)
-            self.grupo_color.setExclusive(True)
-        texto = "#000" if QColor(color).lightness() > 140 else "#FFF"
-        self.btn_color.setText(f"Otro color…   {color}")
-        self.btn_color.setStyleSheet(
-            f"QPushButton {{ background: {color}; color: {texto}; border-color: #191C1F; }}"
-        )
-
-    def _dialogo_color(self) -> None:
-        c = QColorDialog.getColor(QColor(self._color_actual()), self, "Color de los bloques")
-        if c.isValid():
-            self._elegir_color(c.name())
-
-    def regenerar(self, reajustar: bool | None = None) -> None:
-        if self._sincronizando:
-            return
-        cfg = self.configuracion()
-        clave = cfg.figura if cfg.figura != "hexagono" else f"hexagono_{cfg.orientacion}"
-        self.lbl_tamano.setText(f"{ETIQUETA_TAMANO[cfg.figura]} (en bloques)")
-        self.lbl_ayuda_tamano.setText(AYUDA_TAMANO[clave])
-        try:
-            figura = generar(cfg)
+            figura = generar(self.panel.configuracion())
         except ErrorDeTamano as e:
-            self.lbl_error.setText(str(e))
-            self.lbl_error.show()
+            self.panel.mostrar_error(
+                f"{e} Escribe un número entre {TAMANO_MINIMO} y {TAMANO_MAXIMO} o usa el deslizador."
+            )
             self._set_figura(None, False)
-            return
-        self.lbl_error.hide()
-        if reajustar is None:
-            reajustar = self.chk_auto.isChecked()
-        self._set_figura(figura, reajustar)
+        else:
+            self.panel.mostrar_error(None)
+            self._set_figura(figura, reajustar)
+        self._actualizar_titulo()
 
     def _set_figura(self, figura: Figura | None, reajustar: bool) -> None:
         self.figura = figura
-        for accion in (self.acc_guardar, self.acc_png, self.acc_copiar):
+        for accion in (self.acc_guardar, self.acc_guardar_como, self.acc_png, self.acc_copiar):
             accion.setEnabled(figura is not None)
-        self.btn_copiar.setEnabled(figura is not None)
         fila = self.lienzo.opciones.fila_resaltada
         self.lienzo.set_figura(figura, reajustar)
-        self._sincronizando = True
-        self.modelo.set_figura(figura)
-        self._sincronizando = False
+        self.guia.set_figura(figura)
+        self.panel.mostrar_figura(figura)
         if figura is None:
-            self._limpiar_datos()
+            self.lbl_figura.setText("Sin figura")
             return
-        self._mostrar_datos(figura)
-        self.lbl_alto_calc.setText(_texto_proporciones(figura))
-        self.lbl_paridad.setText(_texto_paridad(figura.config))
+        self.lbl_figura.setText(f"{figura.ancho} × {figura.alto} · {figura.total} bloques")
         if fila is not None and fila < figura.alto:
             self.lienzo.set_fila(fila, emitir=False)
-            self._seleccionar_en_tabla(fila)
-            self._describir_fila(fila)
+            self.guia.seleccionar_fila(fila)
 
-    def _limpiar_datos(self) -> None:
-        self.lbl_total.setText("—")
-        for clave in ("Ancho real", "Alto real", "Centro", "Lado"):
-            self.datos[clave].setText("—")
-        for etiqueta in (self.lbl_desc, self.lbl_alto_calc, self.lbl_paridad, self.lbl_estado_fig):
-            etiqueta.setText("")
+    def hay_cambios(self) -> bool:
+        return self.panel.configuracion() != self._config_base
 
-    def _mostrar_datos(self, figura: Figura) -> None:
-        r = resumen(figura)
-        self.lbl_desc.setText(descripcion(figura.config))
-        self.lbl_total.setText(f"{figura.total:,}".replace(",", "."))
-        self.datos["Ancho real"].setText(f"{figura.ancho} bloques")
-        self.datos["Alto real"].setText(f"{figura.alto} bloques")
-        self.datos["Centro"].setText(r["Centro"])
-        lado = next((k for k in ("Lado superior", "Lados verticales") if k in r), None)
-        self.datos["Lado_et"].setVisible(lado is not None)
-        self.datos["Lado"].setVisible(lado is not None)
-        if lado:
-            self.datos["Lado_et"].setText(lado)
-            self.datos["Lado"].setText(r[lado])
-        self.lbl_estado_fig.setText(f"{figura.ancho} × {figura.alto} · {figura.total} bloques")
+    def _marcar_guardado(self) -> None:
+        self._config_base = self.panel.configuracion()
+        self._actualizar_titulo()
 
-    def _seleccionar_en_tabla(self, fila: int | None) -> None:
-        self._sincronizando = True
-        try:
-            if fila is None:
-                self.tabla.clearSelection()
-                self.tabla.setCurrentIndex(QModelIndex())
-            else:
-                idx = self.modelo.index(fila, 0)
-                self.tabla.setCurrentIndex(idx)
-                self.tabla.selectRow(fila)
-                self.tabla.scrollTo(idx, QAbstractItemView.ScrollHint.EnsureVisible)
-        finally:
-            self._sincronizando = False
+    def _nombre_documento(self) -> str:
+        return self._ruta.name if self._ruta else "Sin título"
 
-    def _fila_desde_lienzo(self, fila) -> None:
-        self._seleccionar_en_tabla(fila)
-        self._describir_fila(fila)
+    def _actualizar_titulo(self) -> None:
+        cambios = self.hay_cambios()
+        self.setWindowTitle(f"{self._nombre_documento()}[*] — {tema.NOMBRE_APP}")
+        self.setWindowModified(cambios)
+        self.lbl_documento.setText(self._nombre_documento() + (" · sin guardar" if cambios else ""))
 
-    def _fila_desde_tabla(self, actual: QModelIndex, _anterior: QModelIndex) -> None:
-        if self._sincronizando:
+    def confirmar_descarte(self) -> bool:
+        if not self.hay_cambios():
+            return True
+        decision = dialogos.preguntar_cambios(self, self._nombre_documento(), self.figura is not None)
+        if decision is dialogos.Decision.GUARDAR:
+            return self.guardar()
+        return decision is dialogos.Decision.DESCARTAR
+
+    def nuevo(self) -> None:
+        if not self.confirmar_descarte():
             return
-        fila = actual.row() if actual.isValid() else None
-        self.lienzo.set_fila(fila, emitir=False)
-        self._describir_fila(fila)
+        self._ruta = None
+        self.panel.set_configuracion(Configuracion(color=self.panel.configuracion().color))
+        self.lienzo.set_fila(None)
+        self.regenerar(reajustar=True)
+        self._marcar_guardado()
+        self.statusBar().showMessage("Diseño nuevo.", 3000)
 
-    def _describir_fila(self, fila: int | None) -> None:
-        if fila is None or self.figura is None:
-            self.lbl_fila.setText("Haz clic en una fila de la tabla o del dibujo para seguirla.")
+    def abrir_diseno(self) -> None:
+        if not self.confirmar_descarte():
             return
-        f = filas_guia(self.figura)[fila]
-        self.lbl_fila.setText(
-            f"<b>Fila {f.fila} de {self.figura.alto}</b>: {f.bloques} bloque{'s' if f.bloques != 1 else ''} — "
-            f"{texto_tramos_largo(f.tramos)}"
+        ruta, _ = QFileDialog.getOpenFileName(
+            self, "Abrir diseño", self._carpeta(), f"{FILTRO_DISENO};;Todos los archivos (*)"
         )
+        if ruta:
+            self.abrir_ruta(ruta)
+
+    def abrir_ruta(self, ruta: str) -> bool:
+        try:
+            cargado = abrir(ruta)
+        except ErrorDeArchivo as e:
+            QMessageBox.warning(
+                self, "No se pudo abrir el diseño",
+                f"{e}\n\nComprueba que el archivo es un diseño guardado con {tema.NOMBRE_APP} "
+                "(extensión .json) y vuelve a intentarlo.",
+            )
+            return False
+        self._ruta = Path(ruta)
+        self.ajustes.setValue("archivos/carpeta", str(self._ruta.parent))
+        self.panel.set_configuracion(cargado.figura.config)
+        self.lienzo.set_fila(None)
+        self.regenerar(reajustar=True)
+        self._marcar_guardado()
+        self.statusBar().showMessage(f"Diseño abierto: {self._ruta.name}", 5000)
+        if cargado.aviso:
+            QMessageBox.information(self, "Diseño recalculado", cargado.aviso)
+        return True
+
+    def guardar(self) -> bool:
+        if self._ruta is None:
+            return self.guardar_como()
+        return self._escribir(self._ruta)
+
+    def guardar_como(self) -> bool:
+        if self.figura is None:
+            return False
+        nombre = self._ruta.name if self._ruta else f"{self._nombre_base()}.json"
+        ruta, _ = QFileDialog.getSaveFileName(self, "Guardar diseño", str(Path(self._carpeta()) / nombre),
+                                              FILTRO_DISENO)
+        if not ruta:
+            return False
+        return self._escribir(Path(ruta if ruta.lower().endswith(".json") else ruta + ".json"))
+
+    def _escribir(self, ruta: Path) -> bool:
+        if self.figura is None:
+            return False
+        try:
+            guardar(self.figura, ruta)
+        except OSError as e:
+            QMessageBox.critical(
+                self, "No se pudo guardar",
+                f"No se pudo escribir «{ruta}»: {e.strerror or e}.\n\nComprueba que la carpeta existe "
+                "y que tienes permiso de escritura, o elige otra ubicación con «Guardar como…».",
+            )
+            return False
+        self._ruta = ruta
+        self.ajustes.setValue("archivos/carpeta", str(ruta.parent))
+        self._marcar_guardado()
+        self.statusBar().showMessage(f"Diseño guardado: {ruta.name}", 5000)
+        return True
+
+    def exportar_png(self) -> None:
+        if self.figura is None:
+            return
+        fondo = str(self.ajustes.value("exportar/fondo", "claro"))
+        dialogo = DialogoPNG(self, self.figura, self.acc_cuadricula.isChecked(), fondo)
+        if dialogo.exec() != DialogoPNG.DialogCode.Accepted:
+            return
+        opciones = dialogo.opciones()
+        sufijo = "_cuadricula" if opciones["cuadricula"] else ""
+        sugerido = Path(self._carpeta()) / f"{self._nombre_base()}{sufijo}.png"
+        ruta, _ = QFileDialog.getSaveFileName(self, "Exportar PNG", str(sugerido), "Imagen PNG (*.png)")
+        if not ruta:
+            return
+        ruta = ruta if ruta.lower().endswith(".png") else ruta + ".png"
+        imagen = renderizar_png(self.figura, **opciones)
+        if not imagen.save(ruta, "PNG"):
+            QMessageBox.critical(
+                self, "No se pudo exportar",
+                f"No se pudo escribir la imagen en «{ruta}».\n\nComprueba que la carpeta existe y que "
+                "tienes permiso de escritura, o elige otra ubicación.",
+            )
+            return
+        self.ajustes.setValue("archivos/carpeta", str(Path(ruta).parent))
+        self.ajustes.setValue("exportar/fondo", opciones["fondo"])
+        self.statusBar().showMessage(
+            f"Imagen exportada: {Path(ruta).name} ({imagen.width()} × {imagen.height()} px)", 6000
+        )
+
+    def copiar_instrucciones(self) -> None:
+        if self.figura is None:
+            return
+        QGuiApplication.clipboard().setText(instrucciones(self.figura))
+        self.statusBar().showMessage(
+            f"Instrucciones copiadas: {self.figura.alto} filas, {self.figura.total} bloques.", 4000
+        )
+
+    def _carpeta(self) -> str:
+        return str(self.ajustes.value("archivos/carpeta", str(Path.home() / "Documents")))
+
+    def _nombre_base(self) -> str:
+        cfg = self.figura.config
+        return "_".join(p for p in (cfg.figura, str(cfg.tamano), cfg.orientacion, cfg.modo) if p)
 
     def _mostrar_cursor(self, celda) -> None:
         if celda is None or self.figura is None:
             self.lbl_cursor.setText("Pasa el ratón por la cuadrícula para ver las coordenadas.")
             return
         x, y = celda
-        dentro = self.figura.contiene(x, y)
         dx = (x + 0.5) - self.figura.centro[0]
         dy = self.figura.centro[1] - (y + 0.5)
-
-        def rel(v: float, pos: str, neg: str) -> str:
-            if abs(v) < 1e-9:
-                return ""
-            return f"{formato_num(abs(v))} {pos if v > 0 else neg}"
-
-        partes = [p for p in (rel(dx, "a la derecha", "a la izquierda"), rel(dy, "arriba", "abajo")) if p]
-        rel_txt = ", ".join(partes) if partes else "en el centro"
-        estado = "■ bloque de la figura" if dentro else "□ vacío"
-        self.lbl_cursor.setText(
-            f"Columna {x + 1} · Fila {y + 1}   —   {estado}   —   desde el centro: {rel_txt}"
-        )
+        partes = [t for t in (_distancia(dx, "a la derecha", "a la izquierda"), _distancia(dy, "arriba", "abajo")) if t]
+        estado = "bloque" if self.figura.contiene(x, y) else "vacío"
+        relativo = ", ".join(partes) if partes else "en el centro"
+        self.lbl_cursor.setText(f"Columna {x + 1} · Fila {y + 1} · {estado} · desde el centro: {relativo}")
 
     def _mostrar_zoom(self, px_bloque: float) -> None:
-        self.lbl_zoom.setText(f"{formato_num(px_bloque, 1)} px/bloque")
+        self.lbl_zoom.setText(f"Zoom: {formato_num(px_bloque, 1)} px/bloque")
 
-    def copiar_instrucciones(self) -> None:
-        if self.figura is None:
-            return
-        QGuiApplication.clipboard().setText(instrucciones(self.figura))
-        self.statusBar().showMessage("Instrucciones copiadas al portapapeles.", 4000)
+    def _mostrar_guia(self, visible: bool) -> None:
+        self.guia.setVisible(visible)
+        tamanos = self.divisor.sizes()
+        if visible and tamanos[2] == 0:
+            self.divisor.setSizes([tamanos[0], max(200, tamanos[1] - ANCHO_GUIA), ANCHO_GUIA])
 
-    def _carpeta(self) -> str:
-        return str(self.ajustes.value("carpeta", str(Path.home() / "Documents")))
+    def _al_mover_divisor(self, _pos: int, _indice: int) -> None:
+        visible = self.divisor.sizes()[2] > 0
+        if visible != self.acc_guia.isChecked():
+            self.acc_guia.blockSignals(True)
+            self.acc_guia.setChecked(visible)
+            self.acc_guia.blockSignals(False)
 
-    def _nombre_base(self) -> str:
-        cfg = self.figura.config
-        partes = [cfg.figura, str(cfg.tamano)]
-        if cfg.orientacion:
-            partes.append(cfg.orientacion)
-        partes.append(cfg.modo)
-        return "_".join(partes)
-
-    def guardar_diseno(self) -> None:
-        if self.figura is None:
-            return
-        ruta, _ = QFileDialog.getSaveFileName(
-            self, "Guardar diseño", str(Path(self._carpeta()) / f"{self._nombre_base()}.json"),
-            "Diseño de figuras (*.json)",
-        )
-        if not ruta:
-            return
-        try:
-            guardar(self.figura, ruta)
-        except OSError as e:
-            QMessageBox.critical(self, "No se pudo guardar", f"No se pudo guardar el archivo:\n{e}")
-            return
-        self.ajustes.setValue("carpeta", str(Path(ruta).parent))
-        self.statusBar().showMessage(f"Diseño guardado en {ruta}", 5000)
-
-    def abrir_diseno(self) -> None:
-        ruta, _ = QFileDialog.getOpenFileName(
-            self, "Abrir diseño", self._carpeta(), "Diseño de figuras (*.json);;Todos los archivos (*)"
-        )
-        if ruta:
-            self.abrir_ruta(ruta)
-
-    def abrir_ruta(self, ruta: str) -> None:
-        try:
-            cargado = abrir(ruta)
-        except ErrorDeArchivo as e:
-            QMessageBox.warning(self, "No se pudo abrir el diseño", str(e))
-            return
-        self.ajustes.setValue("carpeta", str(Path(ruta).parent))
-        self.aplicar_configuracion(cargado.figura.config)
-        self.lienzo.set_fila(None)
-        self.regenerar(reajustar=True)
-        self.statusBar().showMessage(f"Diseño abierto: {Path(ruta).name}", 5000)
-        if cargado.aviso:
-            QMessageBox.information(self, "Aviso", cargado.aviso)
-
-    def exportar_png(self) -> None:
-        if self.figura is None:
-            return
-        dlg = DialogoPNG(self, self.figura, self.chk_cuadricula.isChecked())
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        sufijo = "_cuadricula" if dlg.cuadricula.isChecked() else ""
-        ruta, _ = QFileDialog.getSaveFileName(
-            self, "Exportar PNG", str(Path(self._carpeta()) / f"{self._nombre_base()}{sufijo}.png"),
-            "Imagen PNG (*.png)",
-        )
-        if not ruta:
-            return
-        if not ruta.lower().endswith(".png"):
-            ruta += ".png"
-        img = renderizar_png(
-            self.figura, dlg.px.value(), dlg.cuadricula.isChecked(),
-            dlg.numeros.isChecked(), dlg.transparente.isChecked(),
-        )
-        if not img.save(ruta, "PNG"):
-            QMessageBox.critical(self, "No se pudo exportar", f"No se pudo escribir la imagen en:\n{ruta}")
-            return
-        self.ajustes.setValue("carpeta", str(Path(ruta).parent))
-        self.statusBar().showMessage(f"Imagen exportada: {ruta} ({img.width()} × {img.height()} px)", 6000)
-
-    def mostrar_ayuda(self) -> None:
-        QMessageBox.information(
-            self,
-            "Cómo se miden las figuras",
-            "<p><b>Cada celda es un bloque.</b> Las figuras se construyen solo con bloques completos.</p>"
-            "<p><b>Medidas</b><br>"
-            "• Círculo: diámetro = ancho = alto en bloques.<br>"
-            "• Triángulo: ancho de la base en bloques; la altura se calcula como base × √3/2.<br>"
-            "• Hexágono, lado plano arriba: ancho de vértice a vértice; alto = ancho × √3/2.<br>"
-            "• Hexágono, vértice arriba: ancho de lado plano a lado plano; alto = ancho × 2/√3.</p>"
-            "<p><b>Qué bloques forman la figura</b><br>"
-            "Se dibuja la figura geométrica exacta sobre la cuadrícula y se toma cada bloque "
-            "cuyo <i>centro</i> queda dentro de ella. El alto calculado se redondea eligiendo la "
-            "colocación que más se acerca al valor teórico.</p>"
-            "<p><b>Centro</b><br>Con tamaño impar hay una columna central; con tamaño par el centro "
-            "cae en la línea entre dos columnas (lo mismo con las filas).</p>"
-            "<p><b>Contorno</b><br>Son los bloques de la figura rellena que tocan el exterior por un "
-            "lado. En los escalones se unen en diagonal, como en las construcciones habituales.</p>"
-            "<p>Los ejes, el centro y el resaltado son solo ayudas visuales: no cuentan como bloques.</p>",
-        )
-
-    def acerca_de(self) -> None:
-        QMessageBox.about(
-            self,
-            "Acerca de",
-            f"<b>Figuras con bloques</b> {__version__}<br>"
-            "Generador de círculos, triángulos y hexágonos pixelados para construir con bloques.<br>"
-            "Funciona sin conexión. Las figuras son aproximaciones discretas de formas regulares.",
-        )
+    def _cambiar_fondo(self, claro: bool) -> None:
+        self.lienzo.set_paleta(tema.LIENZO_CLARO if claro else tema.LIENZO_OSCURO)
 
     def _cargar_ajustes(self) -> None:
         a = self.ajustes
+        self.panel.set_configuracion(self._config_guardada())
+        for accion, clave, defecto in (
+            (self.acc_cuadricula, "vista/cuadricula", True), (self.acc_ejes, "vista/ejes", True),
+            (self.acc_centro, "vista/centro", True), (self.acc_numeros, "vista/numeros", True),
+            (self.acc_auto, "vista/auto_ajuste", True), (self.acc_guia, "vista/guia", True),
+            (self.acc_fondo_claro, "vista/fondo_claro", False),
+        ):
+            accion.setChecked(_booleano(a.value(clave, defecto)))
+        self._mostrar_guia(self.acc_guia.isChecked())
+        self.guia.btn_plegar.setChecked(_booleano(a.value("vista/tabla", True)))
+        geometria = a.value("ventana/geometria")
+        if geometria is None or not self.restoreGeometry(geometria):
+            self._tamano_inicial()
+        divisor = a.value("ventana/divisor")
+        if divisor is not None:
+            self.divisor.restoreState(divisor)
+            self.guia.setVisible(self.acc_guia.isChecked())
+
+    def _config_guardada(self) -> Configuracion:
+        a = self.ajustes
         try:
-            cfg = Configuracion(
-                figura=str(a.value("figura", "hexagono")),
-                tamano=int(a.value("tamano", 21)),
-                orientacion=str(a.value("orientacion", "plano")),
-                modo=str(a.value("modo", "contorno")),
-                color=str(a.value("color", COLORES[0][1])),
+            return Configuracion(
+                figura=str(a.value("diseno/figura", "hexagono")),
+                tamano=int(a.value("diseno/tamano", 21)),
+                orientacion=str(a.value("diseno/orientacion", "plano")),
+                modo=str(a.value("diseno/modo", "contorno")),
+                color=str(a.value("diseno/color", Configuracion().color)),
             ).validada()
         except (ErrorDeTamano, ValueError, TypeError):
-            cfg = Configuracion()
-        self.aplicar_configuracion(cfg)
-        for chk, clave in (
-            (self.chk_cuadricula, "cuadricula"), (self.chk_ejes, "ejes"), (self.chk_centro, "centro"),
-            (self.chk_numeros, "numeros"), (self.chk_auto, "auto"),
-        ):
-            valor = a.value(clave, True)
-            chk.setChecked(valor in (True, "true", "1", 1))
-        geo = a.value("geometria")
-        if geo is not None:
-            self.restoreGeometry(geo)
+            return Configuracion()
+
+    def _tamano_inicial(self) -> None:
+        pantalla = QGuiApplication.primaryScreen()
+        if pantalla is None:
+            self.resize(1360, 860)
+            return
+        disponible = pantalla.availableGeometry()
+        self.resize(min(1440, int(disponible.width() * 0.9)), min(900, int(disponible.height() * 0.9)))
+        self.move(disponible.center() - self.rect().center())
+
+    def guardar_ajustes(self) -> None:
+        cfg = self.panel.configuracion()
+        valida = TAMANO_MINIMO <= cfg.tamano <= TAMANO_MAXIMO
+        valores = {
+            "diseno/figura": cfg.figura,
+            "diseno/tamano": cfg.tamano if valida else 21,
+            "diseno/orientacion": cfg.orientacion,
+            "diseno/modo": cfg.modo,
+            "diseno/color": cfg.color,
+            "vista/cuadricula": self.acc_cuadricula.isChecked(),
+            "vista/ejes": self.acc_ejes.isChecked(),
+            "vista/centro": self.acc_centro.isChecked(),
+            "vista/numeros": self.acc_numeros.isChecked(),
+            "vista/auto_ajuste": self.acc_auto.isChecked(),
+            "vista/guia": self.acc_guia.isChecked(),
+            "vista/fondo_claro": self.acc_fondo_claro.isChecked(),
+            "vista/tabla": self.guia.tabla_desplegada(),
+            "ventana/geometria": self.saveGeometry(),
+            "ventana/divisor": self.divisor.saveState(),
+        }
+        for clave, valor in valores.items():
+            self.ajustes.setValue(clave, valor)
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        a = self.ajustes
-        cfg = self.configuracion()
-        a.setValue("figura", cfg.figura)
-        a.setValue("tamano", cfg.tamano if TAMANO_MINIMO <= cfg.tamano <= TAMANO_MAXIMO else 21)
-        a.setValue("orientacion", cfg.orientacion)
-        a.setValue("modo", cfg.modo)
-        a.setValue("color", cfg.color)
-        a.setValue("cuadricula", self.chk_cuadricula.isChecked())
-        a.setValue("ejes", self.chk_ejes.isChecked())
-        a.setValue("centro", self.chk_centro.isChecked())
-        a.setValue("numeros", self.chk_numeros.isChecked())
-        a.setValue("auto", self.chk_auto.isChecked())
-        a.setValue("geometria", self.saveGeometry())
+        if not self.confirmar_descarte():
+            event.ignore()
+            return
+        self.guardar_ajustes()
         super().closeEvent(event)
+
+
+def _distancia(valor: float, positivo: str, negativo: str) -> str:
+    if abs(valor) < 1e-9:
+        return ""
+    return f"{formato_num(abs(valor))} {positivo if valor > 0 else negativo}"
+
+
+def _booleano(valor) -> bool:
+    return valor in (True, "true", "1", 1)

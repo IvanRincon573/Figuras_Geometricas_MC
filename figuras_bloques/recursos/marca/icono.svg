@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256">
+  <title>Hexabloq</title>
+  <rect width="64" height="64" rx="13" fill="#1A1D21"/>
+  <g shape-rendering="crispEdges">
+    <rect x="17.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="23.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="29.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="35.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="41.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="11.0" y="14.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="17.0" y="14.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="23.0" y="14.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="29.0" y="14.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="35.0" y="14.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="41.0" y="14.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="47.0" y="14.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="11.0" y="20.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="17.0" y="20.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="23.0" y="20.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="29.0" y="20.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="35.0" y="20.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="41.0" y="20.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="47.0" y="20.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="5.0" y="26.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="11.0" y="26.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="17.0" y="26.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="23.0" y="26.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="29.0" y="26.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="35.0" y="26.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="41.0" y="26.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="47.0" y="26.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="53.0" y="26.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="5.0" y="32.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="11.0" y="32.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="17.0" y="32.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="23.0" y="32.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="29.0" y="32.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="35.0" y="32.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="41.0" y="32.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="47.0" y="32.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="53.0" y="32.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="11.0" y="38.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="17.0" y="38.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="23.0" y="38.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="29.0" y="38.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="35.0" y="38.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="41.0" y="38.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="47.0" y="38.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="11.0" y="44.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="17.0" y="44.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="23.0" y="44.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="29.0" y="44.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="35.0" y="44.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="41.0" y="44.0" width="6" height="6" fill="#2FA873"/>
+    <rect x="47.0" y="44.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="17.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="23.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="29.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="35.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
+    <rect x="41.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
+  </g>
+</svg>

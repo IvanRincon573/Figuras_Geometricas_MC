@@ -103,7 +103,7 @@ def desde_diccionario(datos: object) -> DisenoCargado:
 
 def _validar_cabecera(datos: object) -> None:
     if not isinstance(datos, dict) or datos.get("formato") != FORMATO:
-        raise ErrorDeArchivo("El archivo no es un diseño de Figuras con bloques.")
+        raise ErrorDeArchivo("El archivo no es un diseño de Hexabloq.")
     if not isinstance(datos.get("version"), int) or datos["version"] > VERSION:
         raise ErrorDeArchivo("El diseño se guardó con una versión más reciente del programa.")
 
