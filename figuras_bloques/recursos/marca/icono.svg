@@ -1,62 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256">
-  <title>Hexabloq</title>
-  <rect width="64" height="64" rx="13" fill="#1A1D21"/>
-  <g shape-rendering="crispEdges">
-    <rect x="17.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="23.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="29.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="35.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="41.0" y="8.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="11.0" y="14.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="17.0" y="14.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="23.0" y="14.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="29.0" y="14.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="35.0" y="14.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="41.0" y="14.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="47.0" y="14.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="11.0" y="20.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="17.0" y="20.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="23.0" y="20.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="29.0" y="20.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="35.0" y="20.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="41.0" y="20.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="47.0" y="20.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="5.0" y="26.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="11.0" y="26.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="17.0" y="26.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="23.0" y="26.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="29.0" y="26.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="35.0" y="26.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="41.0" y="26.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="47.0" y="26.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="53.0" y="26.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="5.0" y="32.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="11.0" y="32.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="17.0" y="32.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="23.0" y="32.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="29.0" y="32.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="35.0" y="32.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="41.0" y="32.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="47.0" y="32.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="53.0" y="32.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="11.0" y="38.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="17.0" y="38.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="23.0" y="38.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="29.0" y="38.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="35.0" y="38.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="41.0" y="38.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="47.0" y="38.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="11.0" y="44.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="17.0" y="44.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="23.0" y="44.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="29.0" y="44.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="35.0" y="44.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="41.0" y="44.0" width="6" height="6" fill="#2FA873"/>
-    <rect x="47.0" y="44.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="17.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="23.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="29.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="35.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
-    <rect x="41.0" y="50.0" width="6" height="6" fill="#7BE3B1"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="512" height="512" role="img">
+  <title>Hexabloq · icono de aplicación</title>
+  <desc>Hexágono de bloques con una H en espacio negativo. Identidad de Hexabloq.</desc>
+  <defs>
+    <linearGradient id="jade" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#B5FFDE"/>
+      <stop offset=".45" stop-color="#57E6B0"/>
+      <stop offset="1" stop-color="#1BA979"/>
+    </linearGradient>
+    <linearGradient id="placa" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#203D34"/>
+      <stop offset=".55" stop-color="#142922"/>
+      <stop offset="1" stop-color="#0D1B18"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="126" height="126" rx="28" fill="url(#placa)" stroke="#426454" stroke-opacity=".65"/><path d="M32 16 L96 16 L96 24 L104 24 L104 40 L112 40 L112 56 L120 56 L120 72 L112 72 L112 88 L104 88 L104 104 L96 104 L96 112 L32 112 L32 104 L24 104 L24 88 L16 88 L16 72 L8 72 L8 56 L16 56 L16 40 L24 40 L24 24 L32 24 Z M32 40 L48 40 L48 56 L80 56 L80 40 L96 40 L96 88 L80 88 L80 72 L48 72 L48 88 L32 88 Z" fill="url(#jade)" fill-rule="evenodd"/>
+    <path d="M32 16 H96 V24 H32 Z" fill="#FFFFFF" opacity=".16"/>
+    <path d="M40 24 H48 V32 H40 Z M32 32 H40 V40 H32 Z"
+          fill="#E3FFF2" opacity=".34"/>
+    <path d="M80 96 H88 V104 H80 Z M88 88 H96 V96 H88 Z"
+          fill="#087853" opacity=".24"/>
+    <path d="M48 16 V32 M80 96 V112" fill="none" stroke="#0A6B4A"
+          stroke-opacity=".12" stroke-width="1"/>
+
 </svg>

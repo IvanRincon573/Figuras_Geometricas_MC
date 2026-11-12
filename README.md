@@ -12,8 +12,8 @@
 ## Identidad visual
 
 - **Nombre:** *Hexabloq* une «hexágono» y «bloque». Es corto, fácil de recordar y apunta a la figura principal de la aplicación.
-- **Logo:** un hexágono de 15 bloques generado con el propio algoritmo de la app. El borde va en verde claro y el interior en verde más intenso; cada bloque tiene un relieve de luz y sombra.
-- **Icono:** la versión simplificada, sin relieve, sobre un cuadrado redondeado oscuro. En cada resolución se dibuja con bloques de píxeles enteros: hexágono de 7 bloques para 16–24 px, de 9 para 32–48 px y de 15 a partir de 64 px. Así se reconoce incluso en la barra de tareas.
+- **Logo:** un hexágono escalonado con una **H calada** en el centro, construido sobre una retícula de 8 unidades. Un degradado de menta a esmeralda y pequeños acentos de bloques completan el símbolo. La marca es independiente de las plantillas geométricas de construcción.
+- **Icono:** el mismo monograma sobre una placa oscura de esquinas redondeadas. De 16 a 48 px se simplifican los detalles y se ajustan los vértices a píxeles enteros; de 64 a 256 px se conserva el acabado completo. El archivo ICO contiene nueve resoluciones para Windows.
 - **Paleta:**
 
   | Uso | Color |
@@ -29,14 +29,17 @@
 Los recursos están en [figuras_bloques/recursos/](figuras_bloques/recursos/):
 
 - **`marca/`**:
-  - `logo.svg` y `logo.png`: el hexágono solo.
-  - `logo_nombre.svg` y `logo_nombre.png`: el hexágono con el nombre.
+  - `logo.svg` y `logo.png`: el símbolo con fondo transparente.
+  - `logo_nombre.svg` y `logo_nombre.png`: el símbolo con el nombre y el lema, para fondos oscuros.
+  - `logo_nombre_claro.svg` y `logo_nombre_claro.png`: versión para fondos claros.
   - `icono.svg`: el icono simplificado.
   - `icono.ico`: con 9 resoluciones, de 16 a 256 px.
   - `icono_256.png`.
+  - `icono.png`: icono de 512 px.
+  - `vista_previa.png`: lámina con las variantes y los tamaños del icono.
 - **`iconos/`**: iconos de interfaz en SVG, de trazo uniforme, que la app colorea según el estado del botón.
 
-Se regeneran con `python tools/generar_identidad.py`. Todos son originales y locales.
+Se regeneran con `python tools/generar_identidad.py`. Todos son originales y locales. Las letras de los logos SVG están convertidas en trazados: los archivos exportados no dependen de las fuentes instaladas. El generador usa Segoe UI al regenerarlos en Windows.
 
 ---
 
@@ -210,7 +213,7 @@ figuras_bloques/
   ui/exportar.py                Exportación PNG
   ui/dialogos.py                Ayuda, atajos, información y confirmación de cambios
 tests/                          Pruebas (pytest)
-tools/generar_identidad.py      Regenera logo, icono e ICO a partir de la geometría
+tools/generar_identidad.py      Regenera la identidad vectorial, variantes, ICO y vista previa
 empaquetado/version_info.txt    Datos de versión del ejecutable
 Hexabloq.spec                   Configuración de PyInstaller
 construir_exe.bat               Genera dist\Hexabloq.exe
