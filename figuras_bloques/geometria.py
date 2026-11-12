@@ -1,12 +1,14 @@
 """Conversión de figuras regulares en bloques enteros.
 
 Una celda (x, y) pertenece a la figura si su centro (x + 0,5, y + 0,5) cae
-dentro de la figura continua o sobre su borde. El contorno son los bloques del
-relleno con algún vecino ortogonal fuera de la figura.
+dentro de la figura continua o sobre su borde. En el hexágono, cada lado inclinado
+se desplaza menos de media fila para que sus escalones sean simétricos. El contorno
+son los bloques del relleno con algún vecino ortogonal fuera de la figura.
 """
 
 from __future__ import annotations
 
+import functools
 import itertools
 import math
 from dataclasses import dataclass, field, replace
@@ -49,7 +51,6 @@ MEDIDA_TAMANO = {
 
 Tramo = tuple[int, int]
 Fila = tuple[Tramo, ...]
-SemiAncho = Callable[[float], "float | None"]
 T = TypeVar("T")
 
 
@@ -200,17 +201,6 @@ def _mas_cercano(candidatos: list[tuple[list[Tramo], T]], alto_teorico: float) -
     return min(validos, key=lambda c: abs(len(c[0]) - alto_teorico))
 
 
-def _filas_simetricas(ancho: int, semiancho: SemiAncho, alto_teorico: float) -> list[Tramo]:
-    """Prueba el centro sobre una fila (alto impar) y entre dos filas (alto par)."""
-    cx = ancho / 2
-    mitad_impar = _apilar(lambda k: semiancho(k), cx)
-    mitad_par = _apilar(lambda k: semiancho(k + 0.5), cx)
-    impar = mitad_impar[:0:-1] + mitad_impar
-    par = mitad_par[::-1] + mitad_par
-    filas, _ = _mas_cercano([(impar, None), (par, None)], alto_teorico)
-    return filas
-
-
 def _contorno(filas: list[Tramo]) -> list[Fila]:
     """Quita de cada fila su interior: los bloques con los cuatro vecinos dentro."""
     ultima = len(filas) - 1
@@ -226,12 +216,22 @@ def _contorno(filas: list[Tramo]) -> list[Fila]:
     return contorno
 
 
+def _primeras_filas(filas: list[Tramo], ancho: int) -> list[int]:
+    """Primera fila que cubre cada columna en una figura convexa."""
+    primera = [0] * ancho
+    izq, der = ancho, -1
+    for y, (x0, x1) in enumerate(filas):
+        for x in itertools.chain(range(x0, min(izq, x1 + 1)), range(max(der + 1, x0), x1 + 1)):
+            primera[x] = y
+        izq, der = min(izq, x0), max(der, x1)
+    return primera
+
+
 def _transponer(filas: list[Tramo], ancho: int) -> list[Tramo]:
-    columnas: list[Tramo] = []
-    for x in range(ancho):
-        ys = [y for y, (x0, x1) in enumerate(filas) if x0 <= x <= x1]
-        columnas.append((min(ys), max(ys)))
-    return columnas
+    """Columnas de una figura convexa, en tiempo proporcional a su contorno."""
+    ultima = len(filas) - 1
+    desde_abajo = _primeras_filas(filas[::-1], ancho)
+    return [(y0, ultima - y1) for y0, y1 in zip(_primeras_filas(filas, ancho), desde_abajo)]
 
 
 def _circulo(diametro: int) -> _Rasterizado:
@@ -243,37 +243,72 @@ def _circulo(diametro: int) -> _Rasterizado:
     return _Rasterizado(filas, diametro, diametro, diametro, (centro, centro))
 
 
-def _semiancho_lado_plano(ancho: int) -> SemiAncho:
-    radio = ancho / 2
-    mitad_alto = radio * RAIZ3 / 2
-
-    def semiancho(dy: float) -> float | None:
-        return None if dy > mitad_alto + EPS else radio - dy / RAIZ3
-
-    return semiancho
+def _columnas_borde(alto: int, desfase: float) -> list[int]:
+    """Primera columna de cada fila, de la central hacia arriba, con el borde inclinado
+    desplazado ``desfase`` filas respecto al del hexágono exacto."""
+    dy0 = 0.0 if alto % 2 else 0.5
+    return [math.ceil((dy0 + k - desfase) / RAIZ3 - 0.5 - EPS) for k in range((alto + 1) // 2)]
 
 
-def _semiancho_vertice_arriba(ancho: int) -> SemiAncho:
-    apotema = ancho / 2
-    radio = ancho / RAIZ3
+def _asimetria(columnas: list[int]) -> int:
+    """Escalones interiores que no coinciden con su simétrico respecto al punto medio del lado."""
+    escalones = [len(list(grupo)) for _, grupo in itertools.groupby(columnas)][1:-1]
+    return sum(a != b for a, b in zip(escalones, reversed(escalones)))
 
-    def semiancho(dy: float) -> float | None:
-        if dy > radio + EPS:
-            return None
-        return apotema if dy <= radio / 2 else (radio - dy) * RAIZ3
 
-    return semiancho
+def _desfases(alto: int, base: float) -> list[float]:
+    """Un desfase por cada patrón de escalones distinto a menos de media fila de ``base``,
+    ordenados de menor a mayor alejamiento."""
+    dy0 = 0.0 if alto % 2 else 0.5
+    cortes = {base - 0.5, base + 0.5}
+    for j in range(alto // 2 + 2):
+        corte = dy0 - (j + 0.5) * RAIZ3
+        corte += math.ceil(base - 0.5 - corte)
+        if corte < base + 0.5:
+            cortes.add(corte)
+    puntos = sorted(cortes)
+    desfases = []
+    for a, b in zip(puntos, puntos[1:]):
+        if a < base < b:
+            desfases.append(base)
+        else:
+            desfases.append(b - 1e-6 if b <= base else a + 1e-6)
+    return sorted(desfases, key=lambda d: abs(d - base))
+
+
+@functools.lru_cache(maxsize=256)
+def _hexagono_plano(ancho: int, alto: int, base: float) -> tuple[Tramo, ...]:
+    """Hexágono de lado plano arriba en ``ancho`` × ``alto`` bloques.
+
+    Cada lado inclinado se desplaza menos de media fila (≈0,3 bloques en horizontal)
+    para que sus escalones se lean igual desde ambos extremos, sin alargar ni acortar
+    el lado plano más de un bloque."""
+    lado_ideal = ancho - (alto - 2 * base) / RAIZ3
+    mejor: tuple[bool, int, float, list[int]] | None = None
+    for desfase in _desfases(alto, base):
+        columnas = _columnas_borde(alto, desfase)
+        if columnas[0] != 0:
+            continue
+        lado = ancho - 2 * columnas[-1]
+        clave = (abs(lado - lado_ideal) > 1.5, _asimetria(columnas), abs(desfase - base))
+        if mejor is None or clave < mejor[:3]:
+            mejor = (*clave, columnas)
+        if not clave[0] and clave[1] == 0:
+            break
+    assert mejor is not None
+    mitad = [(x0, ancho - 1 - x0) for x0 in mejor[3]]
+    return tuple(mitad[:0:-1] + mitad if alto % 2 else mitad[::-1] + mitad)
 
 
 def _hexagono(ancho: int, orientacion: str) -> _Rasterizado:
     if orientacion == "plano":
         alto_teorico = ancho * RAIZ3 / 2
-        semiancho = _semiancho_lado_plano(ancho)
-    else:
-        alto_teorico = 2 * ancho / RAIZ3
-        semiancho = _semiancho_vertice_arriba(ancho)
-    filas = _filas_simetricas(ancho, semiancho, alto_teorico)
-    return _Rasterizado(filas, ancho, ancho, alto_teorico, (ancho / 2, len(filas) / 2))
+        filas = list(_hexagono_plano(ancho, round(alto_teorico), 0.0))
+        return _Rasterizado(filas, ancho, ancho, alto_teorico, (ancho / 2, len(filas) / 2))
+    alto_teorico = 2 * ancho / RAIZ3
+    largo = round(alto_teorico)
+    tumbado = list(_hexagono_plano(largo, ancho, ancho - largo * RAIZ3 / 2))
+    return _Rasterizado(_transponer(tumbado, largo), ancho, ancho, alto_teorico, (ancho / 2, largo / 2))
 
 
 def _triangulo(base: int, orientacion: str) -> _Rasterizado:

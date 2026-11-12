@@ -96,17 +96,25 @@ def test_json_bloques_alterados(tmp_path):
 
 @pytest.mark.parametrize("archivo", sorted(DATOS.glob("v1_*.json")), ids=lambda p: p.name)
 def test_compatibilidad_version_1(archivo):
-    """Archivos reales guardados con la versión anterior (una sola figura)."""
+    """Archivos reales guardados con la versión anterior (una sola figura).
+
+    Los hexágonos se dibujan ahora con escalones simétricos: el archivo se abre con
+    la figura recalculada y un aviso; las demás figuras conservan sus bloques."""
     original = json.loads(archivo.read_text(encoding="utf-8"))
     cargado = abrir(archivo)
-    assert cargado.version == 1 and cargado.aviso is None
-    (objeto,) = cargado.documento.objetos
     cfg = original["configuracion"]
+    hexagono = cfg["figura"] == "hexagono"
+    assert cargado.version == 1
+    assert (cargado.aviso is not None) == hexagono
+    (objeto,) = cargado.documento.objetos
     assert (objeto.tipo, objeto.tamano, objeto.orientacion, objeto.modo, objeto.color) == (
         cfg["figura"], cfg["tamano"], cfg["orientacion"], cfg["modo"], cfg["color"])
     assert (objeto.x, objeto.z) == (0, 0)
     bloques = {(x, z) for x, z, _ in construir(cargado.documento.objetos).celdas()}
-    assert bloques == {(x - 1, y - 1) for x, y in original["bloques"]}
+    esperados = generar(Configuracion(cfg["figura"], cfg["tamano"], cfg["orientacion"], cfg["modo"])).conjunto
+    assert bloques == set(esperados)
+    if not hexagono:
+        assert bloques == {(x - 1, y - 1) for x, y in original["bloques"]}
 
 
 def test_compatibilidad_version_1_alterada(tmp_path):

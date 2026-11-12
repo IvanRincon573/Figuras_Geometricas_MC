@@ -234,21 +234,23 @@ El código está en [figuras_bloques/geometria.py](figuras_bloques/geometria.py)
    - con el centro en una fila (alto impar);
    - con el centro en la línea entre dos filas (alto par).
 
-   Se generan las dos y **se elige la que da un alto en bloques más cercano al teórico**; si empatan, la impar. En el triángulo se prueba la base apoyada en una línea de la cuadrícula o pasando por los centros de la última fila.
+   Se elige **la que da un alto en bloques más cercano al teórico**. En el triángulo se prueba la base apoyada en una línea de la cuadrícula o pasando por los centros de la última fila. El hexágono con vértice arriba se construye como el de lado plano arriba, girado un cuarto de vuelta.
 
 3. **Criterio de pertenencia: muestreo por centro.** Un bloque forma parte de la figura **si el centro de su celda está dentro de la figura o sobre su borde**. Para el borde se usa una tolerancia fija de 10⁻⁹, así que el resultado es determinista. Como las tres figuras son convexas, cada fila es un único tramo `[x0, x1]` que se calcula de forma analítica. La figura más grande, de 1000 bloques, se genera en milisegundos.
 
-4. **Contorno.** Son los bloques del relleno que tienen al menos un vecino **ortogonal** (arriba, abajo, izquierda o derecha) fuera de la figura. Esto da un borde de un bloque de grosor que, en los escalones, se une en diagonal (como en las construcciones típicas) y que encierra el interior por completo.
+4. **Escalones simétricos en el hexágono.** Cada lado inclinado es una escalera de tramos de 1 y 2 bloques. Con el muestreo exacto, esa escalera casi nunca se lee igual desde sus dos extremos (por ejemplo 2, 1, 2, 2, 1, 2, 2, 2, 1). Por eso cada lado se desplaza **menos de media fila** a lo largo de sus escalones (menos de 0,25 bloques en perpendicular al lado) hasta que el patrón queda simétrico respecto al punto medio del lado, por ejemplo 1, 2, 2, 2, 1, 2, 2, 2, 1. Así los seis lados son iguales y cada uno es igual de regular en ambos sentidos. El desplazamiento nunca cambia el ancho pedido ni el alto, y el lado plano sigue a menos de 1,5 bloques de su longitud ideal. Del 1 al 1000, el 94 % de los hexágonos con lado plano arriba y el 90 % de los de vértice arriba quedan perfectamente simétricos; en el resto solo cambian de orden algunos escalones.
 
-5. **Simetrías.** El hexágono y el círculo se calculan a partir de la distancia al centro, así que salen exactamente simétricos de izquierda a derecha y de arriba abajo; el círculo, además, por la diagonal. Las orientaciones del triángulo son reflejos o la transpuesta de la misma figura.
+5. **Contorno.** Son los bloques del relleno que tienen al menos un vecino **ortogonal** (arriba, abajo, izquierda o derecha) fuera de la figura. Esto da un borde de un bloque de grosor que, en los escalones, se une en diagonal (como en las construcciones típicas) y que encierra el interior por completo.
+
+6. **Simetrías.** El hexágono y el círculo se calculan a partir de la distancia al centro, así que salen exactamente simétricos de izquierda a derecha y de arriba abajo; el círculo, además, por la diagonal. Las orientaciones del triángulo son reflejos o la transpuesta de la misma figura.
 
 ### Por qué son aproximaciones
 
 Un hexágono o un círculo regulares no se pueden formar exactamente con cuadrados. Sus bordes inclinados tienen pendientes irracionales: √3 en el hexágono, curva en el círculo. La cuadrícula solo conserva las simetrías de espejo horizontal y vertical, no los giros de 60°. Lo que da la app es **la mejor aproximación con bloques completos según un criterio único y consistente**:
 
 - Los lados inclinados del hexágono con lado plano arriba avanzan 0 o 1 bloque por fila (pendiente real ≈ 0,58).
-- Los del hexágono con vértice arriba avanzan 1 o 2 bloques por fila (pendiente real ≈ 1,73), y siguen la recta exacta con menos de un bloque de error.
-- El alto real se aleja del teórico como máximo **0,5 bloques** en el hexágono con lado plano arriba y **0,58** en el de vértice arriba, para todos los anchos de 1 a 1000.
+- Los del hexágono con vértice arriba avanzan 1 o 2 bloques por fila (pendiente real ≈ 1,73).
+- El alto real se aleja del teórico como máximo **0,5 bloques** en los dos hexágonos, para todos los anchos de 1 a 1000.
 - En los vértices agudos del triángulo (60°), la diferencia puede llegar a 0,87 bloques.
 - En tamaños muy pequeños (menos de unos 6 bloques), las figuras se parecen inevitablemente a cuadrados o rombos.
 
@@ -291,7 +293,7 @@ El modelo (`documento`, `operaciones`, `historial`), las operaciones geométrica
 ## Qué comprueban las pruebas
 
 - **Figuras:**
-  - Hexágonos de todos los tamaños de 1 a 80 y de 99 a 1000, en ambas orientaciones y modos: ancho exacto, alto teórico, simetrías, convexidad, pendiente de los bordes, y contorno continuo y sin grosores de 2×2.
+  - Hexágonos de todos los tamaños de 1 a 80 y de 99 a 1000, en ambas orientaciones y modos: ancho exacto, alto teórico, simetrías, convexidad, pendiente de los bordes, escalones simétricos en cada lado, y contorno continuo y sin grosores de 2×2.
   - Círculos y triángulos: dimensiones, simetrías y orientaciones equivalentes.
 - **Chunks:**
   - Límites en 15/16, −1/0, −16/−17 y −32/−33.

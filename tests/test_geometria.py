@@ -124,18 +124,61 @@ def test_hexagono_forma(w, orient):
 @pytest.mark.parametrize("orient", ORIENT_HEX)
 @pytest.mark.parametrize("w", HEX_TAMANOS)
 def test_hexagono_pendiente_real(w, orient):
-    """Cada borde inclinado sigue la recta del hexágono regular a menos de 1 bloque."""
+    """Cada borde inclinado sigue la recta del hexágono regular.
+
+    El muestreo por centros deja el bloque extremo a menos de 1 bloque en horizontal
+    (sen θ en perpendicular a un borde inclinado θ) y el ajuste de escalones lo
+    desplaza menos de 0,25 bloques en perpendicular."""
     f = hexagono(w, orient)
     cx, cy = f.centro
     radio = w / 2 if orient == "plano" else w / RAIZ3
-    for y, ((x0, x1),) in enumerate(f.filas):
+    seno = RAIZ3 / 2 if orient == "plano" else 0.5
+    for y, ((x0, _),) in enumerate(f.filas):
         dy = abs(y + 0.5 - cy)
         if orient == "plano":
-            semiancho = radio - dy / RAIZ3
+            borde_izq = cx - radio + dy / RAIZ3
+        elif dy <= radio / 2:
+            assert x0 == 0, "los lados verticales ocupan la primera columna"
+            continue
         else:
-            semiancho = w / 2 if dy <= radio / 2 else (radio - dy) * RAIZ3
-        borde_izq = cx - semiancho
-        assert abs((x0 + 0.5) - max(borde_izq, 0)) <= 1.0 + 1e-9
+            borde_izq = cx - (radio - dy) * RAIZ3
+        assert abs(x0 + 0.5 - borde_izq) * seno < seno + 0.25
+
+
+def escalones_lado(f: Figura) -> list[int]:
+    """Longitud de cada escalón del lado inclinado superior izquierdo, sin los dos extremos."""
+    if f.config.orientacion == "plano":
+        bordes = [fila[0][0] for fila in f.filas_relleno][: (f.alto + 1) // 2]
+    else:
+        filas = [fila[0] for fila in f.filas_relleno]
+        bordes = [min(y for y, (x0, x1) in enumerate(filas) if x0 <= x <= x1) for x in range(f.ancho)]
+        bordes = bordes[: (f.ancho + 1) // 2]
+    longitudes: list[int] = []
+    for a, b in zip([None, *bordes], bordes):
+        if a == b:
+            longitudes[-1] += 1
+        else:
+            longitudes.append(1)
+    return longitudes[1:-1]
+
+
+@pytest.mark.parametrize("orient", ORIENT_HEX)
+def test_hexagono_escalones_simetricos(orient):
+    """Los escalones de cada lado inclinado se leen igual desde sus dos extremos;
+    cuando no cabe sin deformar la figura, difieren muy pocos."""
+    perfectos = 0
+    for w in range(1, 301):
+        escalones = escalones_lado(hexagono(w, orient))
+        distintos = sum(a != b for a, b in zip(escalones, reversed(escalones)))
+        assert distintos <= 2 + len(escalones) // 10, (w, escalones)
+        perfectos += distintos == 0
+    assert perfectos >= 270
+
+
+def test_hexagono_escalones_casos_conocidos():
+    assert escalones_lado(hexagono(21, "plano")) == [1, 2, 2, 1]
+    assert escalones_lado(hexagono(41, "plano")) == [1, 2, 2, 2, 1, 2, 2, 2, 1]
+    assert escalones_lado(hexagono(21, "vertice")) == [1, 2, 2, 2, 1]
 
 
 def _contorno_fuerza_bruta(relleno: set) -> set:
@@ -178,7 +221,7 @@ def test_hexagono_casos_conocidos():
     assert plano10.bloques_por_fila() == [6, 6, 8, 8, 10, 8, 8, 6, 6]
     assert hexagono(10, "plano", "contorno").total == 26
     vert10 = hexagono(10, "vertice")
-    assert vert10.bloques_por_fila() == [2, 6, 10, 10, 10, 10, 10, 10, 10, 6, 2]
+    assert vert10.bloques_por_fila() == [2, 4, 8, 10, 10, 10, 10, 10, 10, 8, 4, 2]
     vert11 = hexagono(11, "vertice")
     assert vert11.bloques_por_fila()[:4] == [1, 5, 9, 11]
     assert vert11.alto == 13
