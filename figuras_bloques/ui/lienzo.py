@@ -71,6 +71,7 @@ class Lienzo(QWidget):
         self._modo_arrastre = ""
         self._origen_inicio = QPointF()
         self._desplazamiento = (0, 0)
+        self._hubo_previa = False
         self._banda: QRectF | None = None
         self._espacio = False
         self._pendiente_ajuste = True
@@ -249,6 +250,7 @@ class Lienzo(QWidget):
         self._pulsacion = event.position()
         self._origen_inicio = QPointF(self._origen)
         self._desplazamiento = (0, 0)
+        self._hubo_previa = False
         if event.button() == Qt.MouseButton.RightButton:
             self._pulsacion = None
             objeto = self.objeto_en(*self.celda_en(event.position()))
@@ -310,6 +312,7 @@ class Lienzo(QWidget):
             dx, dz = self._ajustar_desplazamiento_a_chunk(dx, dz)
         if (dx, dz) != self._desplazamiento:
             self._desplazamiento = (dx, dz)
+            self._hubo_previa = True
             self.arrastreMovido.emit(dx, dz)
 
     def _ajustar_desplazamiento_a_chunk(self, dx: int, dz: int) -> tuple[int, int]:
@@ -329,7 +332,8 @@ class Lienzo(QWidget):
         movido = (event.position() - self._pulsacion).manhattanLength() > UMBRAL_ARRASTRE_PX
         self._pulsacion = None
         self._actualizar_cursor()
-        if modo == "objetos" and self._desplazamiento != (0, 0):
+        if modo == "objetos" and self._hubo_previa:
+            # También al volver al punto de partida: la ventana debe dejar de mostrar la vista previa.
             self.arrastreTerminado.emit(*self._desplazamiento)
         elif modo == "anadir" and not movido:
             self.colocarPedido.emit(*self.celda_en(event.position()))

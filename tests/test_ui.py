@@ -384,3 +384,27 @@ def test_recursos_desde_otro_directorio(tmp_path):
     )
     assert resultado.returncode == 0, resultado.stderr.decode(errors="replace")
     assert all(json.loads(salida.read_text(encoding="utf-8")).values())
+
+
+def test_arrastre_devuelto_al_inicio_no_congela_la_vista(ventana, app):
+    """Arrastrar una figura y soltarla donde estaba no debe dejar la vista previa activa."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    lz = ventana.lienzo
+    objeto = ventana.documento.objetos[0]
+    x0, z0, _, z1 = objeto.limites()
+    vista, d = lz.vista(), lz.devicePixelRatioF()
+    punto = QPoint(int(vista.px(x0 + 1.5) / d), int(vista.pz((z0 + z1) / 2) / d))
+    QTest.mousePress(lz, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, punto)
+    QTest.mouseMove(lz, punto + QPoint(60, 0))
+    QTest.mouseMove(lz, punto + QPoint(1, 0))
+    QTest.mouseRelease(lz, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, punto + QPoint(1, 0))
+    app.processEvents()
+    assert ventana.documento.objetos[0].x == objeto.x
+    ventana.propiedades.spin_tamano.setValue(200)
+    assert ventana.documento.objetos[0].tamano == 200
+    assert lz.documento.objetos[0].tamano == 200, "el lienzo muestra el documento real"
+    assert ventana.construccion.total == construir(ventana.documento.objetos).total
+    ventana.set_seleccion(())
+    assert ventana.propiedades.modo == "plantilla", "los paneles siguen sincronizados"

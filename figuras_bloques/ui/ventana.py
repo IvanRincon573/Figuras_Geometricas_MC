@@ -52,7 +52,6 @@ class VentanaPrincipal(QMainWindow):
         self.historial = Historial(Documento())
         self._guardado = Documento()
         self._ruta: Path | None = None
-        self._previa: Documento | None = None
         self.seleccion: tuple[str, ...] = ()
         self.construccion = Construccion({})
 
@@ -329,14 +328,16 @@ class VentanaPrincipal(QMainWindow):
         self._refrescar()
         self.lienzo.ajustar()
 
-    def _refrescar(self) -> None:
-        doc = self._previa or self.documento
+    def _refrescar(self, previa: Documento | None = None) -> None:
+        """Actualiza la vista. ``previa`` es el documento provisional de un arrastre en curso:
+        solo se muestra en el lienzo y nunca sustituye al documento real."""
+        doc = previa if previa is not None else self.documento
         self.seleccion = tuple(i for i in self.seleccion if doc.buscar(i))
         self.construccion = construir(doc.objetos)
         self.lienzo.plantilla = self.propiedades.plantilla()
         self.lienzo.set_estado(self.construccion, doc, self.seleccion)
         self._actualizar_resumen(doc)
-        if self._previa is not None:
+        if previa is not None:
             return
         self.panel_objetos.mostrar(doc, self.seleccion)
         self.propiedades.mostrar(doc, self.seleccion)
@@ -432,11 +433,9 @@ class VentanaPrincipal(QMainWindow):
         self.lienzo.set_herramienta(herramienta)
 
     def _arrastre_previo(self, dx: int, dz: int) -> None:
-        self._previa = op.mover(self.documento, self.seleccion, dx, dz)
-        self._refrescar()
+        self._refrescar(previa=op.mover(self.documento, self.seleccion, dx, dz))
 
     def _arrastre_final(self, dx: int, dz: int) -> None:
-        self._previa = None
         self._mover(dx, dz, "Mover")
 
     def mover_seleccion(self, dx: int, dz: int) -> None:
