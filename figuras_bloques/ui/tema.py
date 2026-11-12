@@ -37,55 +37,67 @@ MARCA_BASE = "#2FA873"
 class PaletaLienzo:
     nombre: str
     fondo: str
-    marco_relleno: str
-    marco_borde: str
-    linea_menor: str
-    linea_mayor: str
-    eje_vertical: str
-    eje_horizontal: str
-    centro: str
-    centro_halo: str
+    linea_bloque: str
+    linea_chunk: str
+    eje_x: str
+    eje_z: str
+    origen: str
     resaltado_banda: str
     resaltado_borde: str
     cursor: str
-    numeros: str
-    numeros_resaltado: str
+    seleccion: str
+    seleccion_grupo: str
+    seleccion_oculta: str
+    banda_seleccion: str
+    centro_objeto: str
+    regla_fondo: str
+    regla_texto: str
+    regla_chunk: str
+    etiqueta_chunk: str
 
 
 LIENZO_OSCURO = PaletaLienzo(
     nombre="oscuro",
     fondo="#16191C",
-    marco_relleno="#1D2125",
-    marco_borde="#3A4148",
-    linea_menor="#23282D",
-    linea_mayor="#323940",
-    eje_vertical="#E0605BCC",
-    eje_horizontal="#5B9BE0CC",
-    centro="#FF7A73",
-    centro_halo="#16191C",
+    linea_bloque="#22272C",
+    linea_chunk="#3E4852",
+    eje_x="#E0605BD0",
+    eje_z="#5B9BE0D0",
+    origen="#FFFFFF",
     resaltado_banda="#F5B83D2E",
     resaltado_borde=AMBAR,
     cursor="#FFFFFFB0",
-    numeros="#7D8791",
-    numeros_resaltado=AMBAR,
+    seleccion="#3FDDF0",
+    seleccion_grupo="#3FDDF080",
+    seleccion_oculta="#8A939C",
+    banda_seleccion="#3FDDF026",
+    centro_objeto="#3FDDF0",
+    regla_fondo="#1C2024E8",
+    regla_texto="#8A949E",
+    regla_chunk="#C9D1D9",
+    etiqueta_chunk="#55606B",
 )
 
 LIENZO_CLARO = PaletaLienzo(
     nombre="claro",
     fondo="#F2EFE6",
-    marco_relleno="#0000000C",
-    marco_borde="#9C968A",
-    linea_menor="#D3CEC2",
-    linea_mayor="#A8A194",
-    eje_vertical="#D64541C8",
-    eje_horizontal="#3478D6C8",
-    centro="#D64541",
-    centro_halo="#FFFFFF",
+    linea_bloque="#DDD8CC",
+    linea_chunk="#9F988A",
+    eje_x="#D64541D0",
+    eje_z="#3478D6D0",
+    origen="#1E1E1E",
     resaltado_banda="#FFC40046",
     resaltado_borde="#E69500",
     cursor="#1E1E1EAA",
-    numeros="#5E5A52",
-    numeros_resaltado="#B36F00",
+    seleccion="#0A8FC4",
+    seleccion_grupo="#0A8FC480",
+    seleccion_oculta="#8A8478",
+    banda_seleccion="#0A8FC422",
+    centro_objeto="#0A8FC4",
+    regla_fondo="#E8E4D8EE",
+    regla_texto="#6B665C",
+    regla_chunk="#2E2B26",
+    etiqueta_chunk="#A39D90",
 )
 
 PALETAS_LIENZO = {p.nombre: p for p in (LIENZO_OSCURO, LIENZO_CLARO)}
@@ -225,6 +237,27 @@ QTableView {{
     selection-background-color: #5A4415; selection-color: #FFFFFF;
 }}
 QTableView:focus {{ border-color: {ACENTO}; }}
+QTreeView {{
+    background: {FONDO}; alternate-background-color: #171A1D; border: 1px solid {BORDE};
+    border-radius: 6px; show-decoration-selected: 1; outline: none;
+}}
+QTreeView::item {{ padding: 3px 2px; color: {TEXTO}; }}
+QTreeView::item:selected {{ background: {ACENTO_SUAVE}; color: {TEXTO}; }}
+QTreeView::item:hover {{ background: {SUPERFICIE_ALTA}; }}
+QTreeView:focus {{ border-color: {ACENTO}; }}
+QTreeView::branch {{ background: {FONDO}; }}
+QTreeView::branch:selected {{ background: {ACENTO_SUAVE}; }}
+QTabWidget::pane {{ border: none; background: {PANEL}; top: -1px; }}
+QTabWidget > QWidget {{ background: {PANEL}; }}
+QTabBar {{ background: {PANEL}; }}
+QTabBar::tab {{
+    background: {PANEL}; color: {TEXTO_SECUNDARIO}; padding: 9px 16px; border: none;
+    border-bottom: 2px solid {BORDE};
+}}
+QTabBar::tab:selected {{ color: {TEXTO}; border-bottom: 2px solid {ACENTO}; }}
+QTabBar::tab:hover {{ color: {TEXTO}; background: {SUPERFICIE}; }}
+QTabBar::tab:focus {{ color: {ACENTO_HOVER}; }}
+QRadioButton {{ spacing: 8px; padding: 2px 0; }}
 QHeaderView::section {{
     background: {SUPERFICIE}; color: {TEXTO_SECUNDARIO}; border: none;
     border-right: 1px solid {BORDE}; border-bottom: 1px solid {BORDE}; padding: 6px; font-weight: 600;

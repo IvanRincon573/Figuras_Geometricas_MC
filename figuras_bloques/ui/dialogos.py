@@ -1,4 +1,4 @@
-"""Diálogos de ayuda, atajos, información y confirmación."""
+"""Diálogos de ayuda, atajos, información, fusión y confirmación."""
 
 from __future__ import annotations
 
@@ -6,12 +6,17 @@ from enum import Enum
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
+    QRadioButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -19,47 +24,59 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
+from ..documento import FUSION_BLOQUES, FUSION_SILUETA
 from . import recursos, tema
 
 ATAJOS = (
-    ("Archivo", "Ctrl+N", "Nuevo diseño"),
-    ("Archivo", "Ctrl+O", "Abrir diseño"),
-    ("Archivo", "Ctrl+S", "Guardar"),
+    ("Archivo", "Ctrl+N / Ctrl+O / Ctrl+S", "Nuevo / abrir / guardar"),
     ("Archivo", "Ctrl+Shift+S", "Guardar como"),
-    ("Archivo", "Ctrl+E", "Exportar PNG"),
+    ("Archivo", "Ctrl+E · Ctrl+Shift+E", "Exportar PNG · exportar instrucciones"),
     ("Archivo", "Ctrl+Shift+C", "Copiar instrucciones"),
+    ("Edición", "Ctrl+Z · Ctrl+Y", "Deshacer · rehacer"),
+    ("Edición", "Ctrl+A · Esc", "Seleccionar todo · quitar selección"),
+    ("Edición", "Insert", "Añadir la figura de la plantilla en el centro de la vista"),
+    ("Edición", "Ctrl+D · Supr", "Duplicar · eliminar"),
+    ("Edición", "Ctrl+G · Ctrl+Shift+G", "Agrupar · desagrupar"),
+    ("Edición", "Ctrl+M · Ctrl+Shift+M", "Fusionar · separar figura compuesta"),
+    ("Edición", "Ctrl+] · Ctrl+[", "Subir · bajar en el orden de apilado"),
+    ("Edición", "Flechas · Mayús+flechas", "Mover la selección 1 bloque · 16 bloques (un chunk)"),
+    ("Herramientas", "V / H / A", "Seleccionar / mover vista / añadir figura"),
+    ("Herramientas", "Espacio + arrastrar", "Mover la vista con cualquier herramienta"),
     ("Figura", "Ctrl+1 / Ctrl+2 / Ctrl+3", "Hexágono / círculo / triángulo"),
-    ("Figura", "Ctrl+L", "Ir al campo de tamaño"),
-    ("Figura", "Ctrl+T", "Alternar contorno y relleno"),
-    ("Vista", "Ctrl++ / Ctrl+-", "Acercar / alejar"),
-    ("Vista", "Ctrl+0", "Ajustar a la ventana"),
-    ("Vista", "Ctrl+B", "Mostrar u ocultar la guía de construcción"),
-    ("Cuadrícula", "F / C", "Ajustar / centrar (con la cuadrícula activa)"),
-    ("Cuadrícula", "G / X / M / N", "Cuadrícula / ejes / marca del centro / numeración"),
-    ("Cuadrícula", "↑ / ↓ · Esc", "Fila anterior o siguiente · quitar resaltado"),
-    ("Cuadrícula", "Rueda · arrastrar", "Zoom · mover la vista"),
-    ("Ayuda", "F1", "Cómo se miden las figuras"),
-    ("Ayuda", "Ctrl+/", "Esta lista de atajos"),
+    ("Figura", "Ctrl+L · Ctrl+T", "Ir al tamaño · alternar contorno y relleno"),
+    ("Vista", "Ctrl++ / Ctrl+- / Ctrl+0", "Acercar / alejar / ajustar al diseño"),
+    ("Vista", "C", "Centrar en la selección (o en el origen)"),
+    ("Vista", "G / K / N / X", "Cuadrícula / chunks / coordenadas / ejes y origen"),
+    ("Vista", "Ctrl+B", "Mostrar u ocultar el panel derecho"),
+    ("Guía", "Alt+↑ / Alt+↓", "Fila anterior / siguiente de la guía"),
+    ("Ayuda", "F1 · Ctrl+/", "Ayuda · esta lista de atajos"),
 )
 
 TEXTO_AYUDA = """
+<h3>Mundo y chunks</h3>
+<p>Cada celda es un bloque. La vista es desde arriba: <b>X</b> crece hacia el este (derecha) y
+<b>Z</b> hacia el sur (abajo). Los chunks miden 16 × 16 bloques y están anclados al mundo: el
+chunk (0, 0) contiene X 0…15 y Z 0…15, y el bloque X −1 pertenece al chunk −1 con posición
+local 15.</p>
 <h3>Cómo se miden las figuras</h3>
-<p><b>Cada celda es un bloque.</b> Las figuras se forman solo con bloques completos.</p>
 <ul>
-<li><b>Círculo:</b> diámetro = ancho = alto.</li>
+<li><b>Círculo:</b> diámetro = ancho = largo.</li>
 <li><b>Triángulo:</b> ancho de la base; la altura es base × √3/2.</li>
-<li><b>Hexágono, lado plano arriba:</b> ancho de vértice a vértice; alto = ancho × √3/2.</li>
-<li><b>Hexágono, vértice arriba:</b> ancho de lado plano a lado plano; alto = ancho × 2/√3.</li>
+<li><b>Hexágono, lado plano arriba:</b> ancho de vértice a vértice; largo = ancho × √3/2.</li>
+<li><b>Hexágono, vértice arriba:</b> ancho de lado plano a lado plano; largo = ancho × 2/√3.</li>
 </ul>
-<p><b>Qué bloques forman la figura:</b> se coloca la figura geométrica exacta sobre la
-cuadrícula y se toma cada bloque cuyo <i>centro</i> queda dentro. El alto se redondea
-eligiendo la colocación que más se acerca al valor teórico.</p>
-<p><b>Centro:</b> con tamaño impar hay una columna central; con tamaño par el centro cae en
-la línea entre dos columnas (igual con las filas).</p>
-<p><b>Contorno:</b> son los bloques de la figura rellena que tocan el exterior por un lado;
-en los escalones se unen en diagonal.</p>
-<p>Los ejes, la marca del centro y el resaltado de fila son ayudas visuales: no cuentan
-como bloques.</p>
+<p>Un bloque forma parte de una figura si el <i>centro</i> de su celda queda dentro de la figura
+geométrica exacta.</p>
+<h3>Varias figuras</h3>
+<p><b>Agrupar</b> mantiene las figuras independientes y las mueve juntas. <b>Fusionar</b> crea una
+figura compuesta: <i>conservar los bloques</i> une exactamente los bloques actuales;
+<i>silueta conjunta</i> une las áreas rellenas y genera un único contorno (sin líneas internas)
+o relleno. Los huecos que deja la unión siguen vacíos y su borde forma parte del contorno. Las
+figuras separadas no se conectan. La compuesta guarda sus figuras de origen y se puede separar.</p>
+<p>Un bloque compartido cuenta una sola vez. Su color es el del objeto que está más arriba en
+la lista de objetos. Las figuras ocultas no cuentan ni se exportan; las bloqueadas sí cuentan.</p>
+<p>La selección, el cursor, los ejes y el resaltado de fila son ayudas visuales: no son bloques
+y no aparecen al exportar.</p>
 """
 
 
@@ -159,3 +176,65 @@ def mostrar_atajos(padre: QWidget) -> None:
     lay.addWidget(botones)
     dialogo.resize(640, 560)
     dialogo.exec()
+
+
+class DialogoFusion(QDialog):
+    """Pide cómo combinar la selección en una figura compuesta."""
+
+    def __init__(self, padre: QWidget, cantidad: int, nombre_sugerido: str) -> None:
+        super().__init__(padre)
+        self.setWindowTitle("Fusionar figuras")
+        lay = QVBoxLayout(self)
+        lay.setSpacing(10)
+        lay.addWidget(QLabel(f"Se combinarán <b>{cantidad} figuras</b> en una figura compuesta. "
+                             "Las originales se conservan dentro de ella y se pueden recuperar con "
+                             "«Separar»."))
+        self.opcion_bloques = QRadioButton("Conservar los bloques")
+        self.opcion_silueta = QRadioButton("Crear silueta conjunta")
+        grupo = QButtonGroup(self)
+        for opcion in (self.opcion_silueta, self.opcion_bloques):
+            grupo.addButton(opcion)
+        self.opcion_silueta.setChecked(True)
+        lay.addWidget(self.opcion_silueta)
+        lay.addWidget(_explicacion("Une las áreas rellenas de las figuras. En contorno queda un solo borde, "
+                                   "sin las líneas internas donde se solapan. Los huecos que deje la unión "
+                                   "siguen vacíos y conservan su borde."))
+        fila = QHBoxLayout()
+        fila.addSpacing(24)
+        fila.addWidget(QLabel("Resultado:"))
+        self.modo = QComboBox()
+        self.modo.addItem("Contorno", "contorno")
+        self.modo.addItem("Relleno", "relleno")
+        fila.addWidget(self.modo, 1)
+        lay.addLayout(fila)
+        lay.addWidget(self.opcion_bloques)
+        lay.addWidget(_explicacion("Unión exacta de los bloques que ocupan ahora las figuras, tal como se "
+                                   "ven (contornos internos incluidos)."))
+        lay.addWidget(_explicacion("En ambos casos, las figuras separadas no se conectan y cada bloque "
+                                   "compartido cuenta una sola vez."))
+        self.opcion_silueta.toggled.connect(self.modo.setEnabled)
+        formulario = QFormLayout()
+        self.nombre = QLineEdit(nombre_sugerido)
+        formulario.addRow("Nombre:", self.nombre)
+        lay.addLayout(formulario)
+        botones = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        aceptar = botones.button(QDialogButtonBox.StandardButton.Ok)
+        aceptar.setText("Fusionar")
+        aceptar.setObjectName("primario")
+        botones.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
+        botones.accepted.connect(self.accept)
+        botones.rejected.connect(self.reject)
+        lay.addWidget(botones)
+        self.setMinimumWidth(480)
+
+    def resultado(self) -> tuple[str, str, str]:
+        fusion = FUSION_SILUETA if self.opcion_silueta.isChecked() else FUSION_BLOQUES
+        return fusion, self.modo.currentData(), self.nombre.text().strip()
+
+
+def _explicacion(texto: str) -> QLabel:
+    etiqueta = QLabel(texto)
+    etiqueta.setObjectName("ayuda")
+    etiqueta.setWordWrap(True)
+    etiqueta.setContentsMargins(24, 0, 0, 0)
+    return etiqueta

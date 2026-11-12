@@ -1,4 +1,4 @@
-"""Pruebas de la interfaz sin mostrar ventanas (plataforma «offscreen»)."""
+"""Pruebas del editor sin mostrar ventanas (plataforma «offscreen»)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ from PySide6.QtCore import QPointF, QSettings  # noqa: E402
 from PySide6.QtGui import QColor, QKeySequence  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from figuras_bloques.geometria import TAMANO_MAXIMO, TAMANO_MINIMO, Configuracion, generar  # noqa: E402
+from figuras_bloques import operaciones as op  # noqa: E402
+from figuras_bloques.construccion import construir  # noqa: E402
+from figuras_bloques.documento import FUSION_SILUETA, Documento, Objeto  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -47,6 +49,7 @@ def decision(monkeypatch):
         return respuesta["valor"]
 
     monkeypatch.setattr(dialogos, "preguntar_cambios", falsa)
+    monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.information", lambda *a, **k: None)
     return respuesta
 
 
@@ -55,180 +58,264 @@ def ventana(app, ajustes_temporales, decision):
     from figuras_bloques.ui.ventana import VentanaPrincipal
 
     v = VentanaPrincipal()
-    v.resize(1300, 820)
+    v.resize(1500, 900)
     v.show()
     app.processEvents()
     yield v
-    v._config_base = v.panel.configuracion()
+    v._guardado = v.documento
     v.close()
 
 
-def configurar(v, cfg: Configuracion) -> None:
-    v.panel.set_configuracion(cfg)
-    v.regenerar(reajustar=True)
+def hexagono(id_, x, z, **extra):
+    extra.setdefault("tamano", 21)
+    return Objeto(id_, f"Hexágono {id_}", "hexagono", x=x, z=z, **extra)
+
+
+def con_documento(v, doc: Documento):
+    v._empezar(doc, None)
+    return v
 
 
 def test_titulo_e_icono(ventana):
     assert "Hexabloq" in ventana.windowTitle()
     assert not QApplication.instance().windowIcon().isNull()
+    assert len(ventana.documento.objetos) == 1
 
 
-def test_zoom_y_desplazamiento_no_cambian_la_figura(ventana):
-    configurar(ventana, Configuracion("hexagono", 40, "vertice", "contorno"))
-    f = ventana.figura
-    for accion in (lambda: ventana.lienzo.zoom(3.0), lambda: ventana.lienzo.zoom(0.2),
-                   ventana.lienzo.centrar, ventana.lienzo.ajustar):
-        accion()
-    assert ventana.figura is f and ventana.lienzo.figura is f
-    assert f.total == generar(f.config).total
-    assert ventana.guia.modelo.rowCount() == f.alto
-    assert ventana.guia.dato_total.lbl_valor.text() == str(f.total)
+def test_anadir_no_reemplaza(ventana):
+    total = len(ventana.documento.objetos)
+    ventana._colocar(40, 10)
+    ventana._colocar(-40, 10)
+    assert len(ventana.documento.objetos) == total + 2
+    assert ventana.seleccion == (ventana.documento.objetos[-1].id,)
+    nuevo = ventana.documento.objetos[-1]
+    x0, z0, x1, z1 = nuevo.limites()
+    assert x0 <= -40 <= x1 and z0 <= 10 <= z1
 
 
-def test_color_y_modo_no_reinician_la_vista(ventana):
-    configurar(ventana, Configuracion("hexagono", 30, "plano", "contorno"))
-    ventana.lienzo.zoom(2.0)
-    ventana.lienzo._origen += QPointF(37, -21)
-    vista = (ventana.lienzo._escala, QPointF(ventana.lienzo._origen))
-    ventana.panel.muestras["#B0503C"].click()
-    ventana.panel.btn_relleno.click()
-    assert ventana.figura.config.color == "#B0503C"
-    assert ventana.figura.config.modo == "relleno"
-    assert (ventana.lienzo._escala, ventana.lienzo._origen) == vista
+def test_vista_no_cambia_el_diseno(ventana):
+    doc = ventana.documento
+    total = ventana.construccion.total
+    ventana.lienzo.zoom(3.0)
+    ventana.lienzo.zoom(0.1)
+    ventana.ajustar_vista()
+    ventana.centrar_vista()
+    assert ventana.documento is doc and ventana.construccion.total == total
 
 
-def test_cambios_de_tamano_actualizan_todo(ventana):
-    configurar(ventana, Configuracion("hexagono", 21, "plano", "relleno"))
-    for valor in (10, 11, 250):
-        ventana.panel.spin_tamano.setValue(valor)
-        f = ventana.figura
-        assert f.config.tamano == valor and f.ancho == valor
-        assert ventana.guia.modelo.rowCount() == f.alto
+def test_seleccion_desde_lienzo_y_panel(ventana):
+    con_documento(ventana, Documento((hexagono("o1", 0, 0), hexagono("o2", 40, 0))))
+    lz = ventana.lienzo
+    assert lz.objeto_en(10, 9).id == "o1"
+    ventana._pedir_seleccion(("o1",), "reemplazar")
+    ventana._pedir_seleccion(("o2",), "sumar")
+    assert ventana.seleccion == ("o1", "o2")
+    ventana._pedir_seleccion(("o1",), "alternar")
+    assert ventana.seleccion == ("o2",)
+    assert ventana.panel_objetos.seleccion_actual() == ("o2",)
+    ventana.panel_objetos.arbol.topLevelItem(1).setSelected(True)
+    assert set(ventana.seleccion) == {"o1", "o2"}
 
 
-def test_deslizador_sincronizado(ventana):
-    from figuras_bloques.ui.panel_config import deslizador_desde_tamano, tamano_desde_deslizador
+def test_arrastre_y_teclado_mueven_con_deshacer(ventana):
+    con_documento(ventana, Documento((hexagono("o1", 0, 0), hexagono("o2", 40, 0))))
+    ventana.set_seleccion(("o1",))
+    ventana._arrastre_previo(3, 2)
+    assert ventana.documento.buscar("o1").x == 0, "la vista previa no entra en el historial"
+    assert ventana.lienzo.documento.buscar("o1").x == 3
+    ventana._arrastre_final(5, 2)
+    assert (ventana.documento.buscar("o1").x, ventana.documento.buscar("o1").z) == (5, 2)
+    ventana.mover_seleccion(16, 0)
+    ventana.mover_seleccion(1, 0)
+    assert ventana.documento.buscar("o1").x == 22
+    ventana.deshacer()
+    assert ventana.documento.buscar("o1").x == 5, "los movimientos de teclado seguidos se deshacen juntos"
+    ventana.deshacer()
+    assert ventana.documento.buscar("o1").x == 0
+    ventana.rehacer()
+    assert ventana.documento.buscar("o1").x == 5
 
-    assert tamano_desde_deslizador(0) == TAMANO_MINIMO
-    assert tamano_desde_deslizador(1000) == TAMANO_MAXIMO
-    tamanos = [tamano_desde_deslizador(p) for p in range(1001)]
-    assert tamanos == sorted(tamanos)
-    for t in (1, 2, 21, 100, 1000):
-        assert tamano_desde_deslizador(deslizador_desde_tamano(t)) == t
-    # En el extremo alto cada posición avanza ~2 bloques: el campo conserva el valor exacto.
-    assert abs(tamano_desde_deslizador(deslizador_desde_tamano(999)) - 999) <= 2
-    ventana.panel.spin_tamano.setValue(999)
-    assert ventana.panel.spin_tamano.value() == 999 == ventana.figura.config.tamano
-    ventana.panel.spin_tamano.setValue(100)
-    assert ventana.panel.deslizador.value() == deslizador_desde_tamano(100)
-    ventana.panel.deslizador.setValue(300)
-    assert ventana.panel.spin_tamano.value() == tamano_desde_deslizador(300)
-    assert ventana.figura.config.tamano == tamano_desde_deslizador(300)
+
+def test_teclas_flecha_en_lienzo(ventana, app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    con_documento(ventana, Documento((hexagono("o1", 0, 0),)))
+    ventana.set_seleccion(("o1",))
+    ventana.lienzo.setFocus()
+    QTest.keyClick(ventana.lienzo, Qt.Key.Key_Right)
+    QTest.keyClick(ventana.lienzo, Qt.Key.Key_Down, Qt.KeyboardModifier.ShiftModifier)
+    o = ventana.documento.buscar("o1")
+    assert (o.x, o.z) == (1, 16)
+
+
+def test_ajuste_a_chunk_al_arrastrar(ventana):
+    con_documento(ventana, Documento((hexagono("o1", 3, 5),)))
+    ventana.set_seleccion(("o1",))
+    lz = ventana.lienzo
+    lz.ajuste_chunk = True
+    lz._desplazamiento = (0, 0)
+    assert lz._ajustar_desplazamiento_a_chunk(10, 0) == (13, -5)
+    assert lz._ajustar_desplazamiento_a_chunk(-2, -1) == (-3, -5)
+
+
+def test_agrupar_fusionar_separar_y_deshacer(ventana):
+    con_documento(ventana, Documento((hexagono("o1", 0, 0), hexagono("o2", 12, 0), hexagono("o3", 60, 0))))
+    antes = ventana.construccion.total
+    ventana.set_seleccion(("o1", "o2"))
+    ventana._ejecutar("agrupar")
+    assert ventana.documento.buscar("o1").grupo == ventana.documento.buscar("o2").grupo
+    assert ventana.construccion.total == antes
+    ventana.fusionar(FUSION_SILUETA, "contorno", "Base")
+    assert [o.tipo for o in ventana.documento.objetos] == ["compuesta", "hexagono"], "la compuesta ocupa el lugar de su origen más alto"
+    assert ventana.construccion.total < antes, "la silueta elimina las líneas internas"
+    ventana._ejecutar("separar")
+    assert [o.id for o in ventana.documento.objetos] == ["o1", "o2", "o3"]
+    ventana.deshacer()
+    ventana.deshacer()
+    assert ventana.documento.buscar("o1").grupo is not None and ventana.construccion.total == antes
+    ventana.deshacer()
+    assert ventana.documento.buscar("o1").grupo is None
+
+
+def test_duplicar_eliminar_y_bloqueo(ventana):
+    con_documento(ventana, Documento((hexagono("o1", 0, 0), hexagono("o2", 30, 0, bloqueado=True))))
+    ventana.set_seleccion(("o1",))
+    ventana._ejecutar("duplicar")
+    assert len(ventana.documento.objetos) == 3
+    ventana.set_seleccion(("o2",))
+    ventana.mover_seleccion(5, 0)
+    assert ventana.documento.buscar("o2").x == 30
+    ventana._ejecutar("eliminar")
+    assert ventana.documento.buscar("o2") is not None
+    ventana._alternar(("o2",), "bloqueado")
+    ventana._ejecutar("eliminar")
+    assert ventana.documento.buscar("o2") is None
+
+
+def test_ocultos_no_cuentan_bloqueados_si(ventana):
+    con_documento(ventana, Documento((hexagono("o1", 0, 0), hexagono("o2", 40, 0))))
+    total = ventana.construccion.total
+    ventana._alternar(("o2",), "visible")
+    assert ventana.construccion.total == total // 2
+    ventana._alternar(("o1",), "bloqueado")
+    assert ventana.construccion.total == total // 2
+
+
+def test_propiedades_editan_y_validan(ventana):
+    con_documento(ventana, Documento((hexagono("o1", 0, 0),)))
+    ventana.set_seleccion(("o1",))
+    panel = ventana.propiedades
+    assert panel.modo == "simple"
+    panel.spin_tamano.setValue(31)
+    assert ventana.documento.buscar("o1").tamano == 31
+    panel.spin_tamano.setValue(0)
+    assert ventana.documento.buscar("o1").tamano == 31
+    assert "entre 1 y 1000" in panel.lbl_error.text()
+    panel.spin_x.setValue(-17)
+    assert ventana.documento.buscar("o1").x == -17
+    panel.muestras["#B0503C"].click()
+    assert ventana.documento.buscar("o1").color == "#B0503C"
+    ventana.deshacer()
+    assert ventana.documento.buscar("o1").color != "#B0503C"
 
 
 def test_solo_parametros_relevantes(ventana):
-    panel = ventana.panel
-    visibles = lambda: {o for o, b in panel.botones_orientacion.items() if b.isVisibleTo(panel)}  # noqa: E731
-    panel.seleccionar_figura("circulo")
-    assert not panel.contenedor_orientacion.isVisibleTo(panel)
-    panel.seleccionar_figura("triangulo")
-    assert visibles() == {"arriba", "abajo", "izquierda", "derecha"}
-    panel.seleccionar_figura("hexagono")
-    assert visibles() == {"plano", "vertice"}
-    assert "Ancho total" in panel.lbl_medida.text()
+    panel = ventana.propiedades
+    ventana.set_seleccion(())
+    assert panel.modo == "plantilla" and panel.btn_anadir.isVisibleTo(panel)
+    panel.seleccionar_tipo("circulo")
+    assert not panel.seccion_orientacion.isVisibleTo(panel)
+    panel.seleccionar_tipo("triangulo")
+    visibles = {o for o, b in panel.botones_orientacion.items() if b.isVisibleTo(panel)}
+    assert visibles == {"arriba", "abajo", "izquierda", "derecha"}
+    assert ventana.propiedades.plantilla().tipo == "triangulo"
+    con_documento(ventana, Documento((hexagono("o1", 0, 0), hexagono("o2", 30, 0))))
+    ventana.set_seleccion(("o1", "o2"))
+    assert panel.modo == "varios" and panel.seccion_alinear.isVisibleTo(panel)
+    assert not panel.seccion_tamano.isVisibleTo(panel)
 
 
-def test_tamano_no_valido_explica_como_corregirlo(ventana):
-    ventana.panel.spin_tamano.setValue(0)
-    assert ventana.figura is None
-    assert ventana.panel.lbl_error.isVisibleTo(ventana.panel)
-    assert "entre 1 y 1000" in ventana.panel.lbl_error.text()
-    assert "Escribe un número" in ventana.panel.lbl_error.text()
-    assert ventana.panel.spin_tamano.property("error") is True
-    assert not ventana.acc_png.isEnabled() and not ventana.acc_guardar.isEnabled()
-    ventana.panel.spin_tamano.setValue(12)
-    assert ventana.figura is not None and not ventana.panel.lbl_error.isVisibleTo(ventana.panel)
+def test_panel_construccion_por_ambito(ventana):
+    con_documento(ventana, Documento((hexagono("o1", 0, 0), hexagono("o2", 40, 0, tamano=11))))
+    ventana.set_seleccion(("o2",))
+    panel = ventana.panel_construccion
+    panel.set_ambito("seleccion")
+    esperado = construir([ventana.documento.buscar("o2")])
+    assert panel.dato_total.lbl_valor.text() == str(esperado.total)
+    assert panel.modelo_chunks.rowCount() == len(esperado.por_chunk)
+    panel.set_ambito("diseno")
+    assert panel.dato_total.lbl_valor.text() == str(ventana.construccion.total)
 
 
-def test_seleccion_de_fila_sincronizada(ventana):
-    configurar(ventana, Configuracion("hexagono", 15, "plano", "contorno"))
-    ventana.lienzo.set_fila(3)
-    assert ventana.guia.tabla.currentIndex().row() == 3
-    assert "Fila 4 de" in ventana.guia.lbl_fila.text()
-    ventana.lienzo.mover_fila(1)
-    assert ventana.guia.tabla.currentIndex().row() == 4
-    ventana.guia.tabla.selectRow(7)
-    assert ventana.lienzo.opciones.fila_resaltada == 7
-    ventana.guia.btn_siguiente.click()
-    assert ventana.lienzo.opciones.fila_resaltada == 8
-    ventana.guia.btn_quitar.click()
-    assert ventana.lienzo.opciones.fila_resaltada is None
+def test_instrucciones_por_chunk(ventana):
+    con_documento(ventana, Documento((hexagono("o1", -5, -5),)))
+    texto = ventana.texto_instrucciones("chunks")
+    for (cx, cz), n in ventana.construccion.por_chunk.items():
+        assert f"Chunk ({cx}, {cz})" in texto
+    assert f"TOTAL: {ventana.construccion.total} bloques únicos" in texto
 
 
-def test_celda_bajo_cursor(ventana):
-    configurar(ventana, Configuracion("circulo", 9, "", "relleno"))
-    lz = ventana.lienzo
-    d = lz.devicePixelRatioF()
-    px = (lz._origen.x() + 4.5 * lz._escala) / d
-    py = (lz._origen.y() + 4.5 * lz._escala) / d
-    assert lz.celda_en(QPointF(px, py)) == (4, 4)
-    ventana._mostrar_cursor((4, 4))
-    assert "Columna 5 · Fila 5" in ventana.lbl_cursor.text()
-    assert "en el centro" in ventana.lbl_cursor.text()
-
-
-def test_zoom_en_barra_de_estado(ventana):
-    ventana.lienzo.zoom(2.0)
-    assert ventana.lbl_zoom.text().startswith("Zoom:")
+def test_cursor_muestra_chunk_y_local(ventana):
+    ventana._mostrar_cursor((-1, 16))
+    assert "X -1 · Z 16 · chunk (-1, 1) · local (15, 0)" in ventana.lbl_cursor.text()
 
 
 @pytest.mark.parametrize("fondo", ["claro", "oscuro", "transparente"])
-@pytest.mark.parametrize("cuadricula", [False, True])
-def test_png_tiene_los_mismos_bloques(app, cuadricula, fondo):
-    from figuras_bloques.ui.exportar import renderizar_png
+@pytest.mark.parametrize("coordenadas", [False, True])
+def test_png_contiene_exactamente_los_bloques(app, fondo, coordenadas):
+    from figuras_bloques.ui.exportar import geometria_png, renderizar_png
 
-    f = generar(Configuracion("hexagono", 23, "vertice", "contorno", "#FF0000"))
+    doc = Documento((
+        Objeto("o1", "a", "hexagono", x=-20, z=-3, tamano=15, color="#FF0000"),
+        Objeto("o2", "b", "circulo", x=-12, z=4, tamano=9, color="#0000FF", modo="relleno"),
+    ))
+    c = construir(doc.objetos)
     px = 6
-    img = renderizar_png(f, px, cuadricula=cuadricula, numeros=False, fondo=fondo)
-    assert (img.width(), img.height()) == ((f.ancho + 2) * px, (f.alto + 2) * px)
-    rojo = QColor("#FF0000")
-    encontrados = {
-        (x, y)
-        for y in range(-1, f.alto + 1)
-        for x in range(-1, f.ancho + 1)
-        if img.pixelColor((x + 1) * px + px // 2, (y + 1) * px + px // 2) == rojo
-    }
-    assert encontrados == f.conjunto
+    imagen = renderizar_png(c, px, cuadricula=True, chunks=True, coordenadas=coordenadas, fondo=fondo)
+    _, _, origen = geometria_png(c, px, coordenadas)
+    x0, z0, x1, z1 = c.limites
+    encontrados = {}
+    for z in range(z0 - 1, z1 + 2):
+        for x in range(x0 - 1, x1 + 2):
+            color = imagen.pixelColor(int(origen.x() + (x + 0.5) * px), int(origen.y() + (z + 0.5) * px))
+            if color in (QColor("#FF0000"), QColor("#0000FF")):
+                encontrados[(x, z)] = color.name().upper()
+    assert encontrados == {(x, z): color for x, z, color in c.celdas()}
 
 
 def test_guardar_abrir_y_cambios_pendientes(ventana, tmp_path):
-    configurar(ventana, Configuracion("triangulo", 17, "derecha", "relleno", "#3F7FE0"))
+    doc = Documento((hexagono("o1", 0, 0), hexagono("o2", 12, 0, color="#3F7FE0")))
+    doc, _ = op.fusionar(doc, ["o1", "o2"], FUSION_SILUETA)
+    con_documento(ventana, doc)
+    ventana._colocar(50, 50)
     assert ventana.hay_cambios() and ventana.isWindowModified()
-    ruta = tmp_path / "t.json"
+    ruta = tmp_path / "diseno.json"
     assert ventana._escribir(ruta)
-    assert not ventana.hay_cambios() and not ventana.isWindowModified()
-    assert "t.json" in ventana.windowTitle()
-    ventana.panel.spin_tamano.setValue(18)
-    assert ventana.hay_cambios()
+    assert not ventana.hay_cambios() and "diseno.json" in ventana.windowTitle()
+    guardado = ventana.documento
+    ventana.mover_seleccion(3, 3)
     assert ventana.abrir_ruta(str(ruta))
-    assert ventana.figura.config == Configuracion("triangulo", 17, "derecha", "relleno", "#3F7FE0")
-    assert ventana.panel.botones_orientacion["derecha"].isChecked()
-    assert not ventana.hay_cambios()
+    assert ventana.documento == guardado and not ventana.hay_cambios()
+
+
+def test_abrir_diseno_version_1(ventana):
+    archivo = RAIZ / "tests" / "datos" / "v1_hexagono_21_plano_contorno.json"
+    assert ventana.abrir_ruta(str(archivo))
+    (objeto,) = ventana.documento.objetos
+    assert (objeto.tipo, objeto.tamano, objeto.x, objeto.z) == ("hexagono", 21, 0, 0)
 
 
 def test_confirmacion_antes_de_descartar(ventana, decision):
     from figuras_bloques.ui import dialogos
 
-    ventana.panel.spin_tamano.setValue(33)
+    ventana._colocar(30, 30)
     decision["valor"] = dialogos.Decision.CANCELAR
     assert not ventana.close()
     assert ventana.isVisible() and decision["preguntas"] == 1
-    ventana.nuevo()
-    assert ventana.figura.config.tamano == 33
     decision["valor"] = dialogos.Decision.DESCARTAR
     ventana.nuevo()
-    assert ventana.figura.config.tamano == Configuracion().tamano
-    assert not ventana.hay_cambios()
+    assert not ventana.documento.objetos and not ventana.hay_cambios()
 
 
 def test_preferencias_persisten(app, ajustes_temporales, decision):
@@ -236,49 +323,55 @@ def test_preferencias_persisten(app, ajustes_temporales, decision):
 
     v = VentanaPrincipal()
     v.show()
-    v.acc_cuadricula.setChecked(False)
+    v.acc_chunks.setChecked(False)
     v.acc_fondo_claro.setChecked(True)
-    v.acc_guia.setChecked(False)
-    configurar(v, Configuracion("circulo", 31, "", "relleno", "#E3B53A"))
-    v.resize(1111, 777)
+    v.acc_ajuste_chunk.setChecked(True)
+    v.propiedades.seleccionar_tipo("circulo")
     app.processEvents()
-    v._config_base = v.panel.configuracion()
+    v._guardado = v.documento
     v.close()
     nueva = VentanaPrincipal()
-    nueva.show()
-    app.processEvents()
-    assert not nueva.acc_cuadricula.isChecked()
-    assert nueva.acc_fondo_claro.isChecked()
-    assert nueva.lienzo.opciones.paleta.nombre == "claro"
-    assert not nueva.acc_guia.isChecked()
-    assert nueva.figura.config == Configuracion("circulo", 31, "", "relleno", "#E3B53A")
-    # La pantalla virtual de las pruebas recorta la ventana; se comprueba que la geometría se guarda y se aplica.
-    guardada = nueva.ajustes.value("ventana/geometria")
-    assert guardada is not None and nueva.restoreGeometry(guardada)
-    assert nueva.ajustes.value("ventana/divisor") is not None
+    assert not nueva.acc_chunks.isChecked() and nueva.acc_fondo_claro.isChecked()
+    assert nueva.lienzo.ajuste_chunk and nueva.lienzo.opciones.paleta.nombre == "claro"
+    assert nueva.propiedades.plantilla().tipo == "circulo"
+    assert nueva.ajustes.value("ventana/geometria") is not None
+    nueva._guardado = nueva.documento
     nueva.close()
 
 
 def test_atajos_principales(ventana):
     esperados = {
-        ventana.acc_nuevo: "Ctrl+N", ventana.acc_abrir: "Ctrl+O", ventana.acc_guardar: "Ctrl+S",
-        ventana.acc_png: "Ctrl+E", ventana.acc_copiar: "Ctrl+Shift+C", ventana.acc_ajustar: "Ctrl+0",
-        ventana.acc_ayuda: "F1", ventana.acc_cuadricula: "G",
+        ventana.acc_deshacer: "Ctrl+Z", ventana.acc_rehacer: "Ctrl+Y", ventana.acc_duplicar: "Ctrl+D",
+        ventana.acc_agrupar: "Ctrl+G", ventana.acc_fusionar: "Ctrl+M", ventana.acc_guardar: "Ctrl+S",
+        ventana.acc_png: "Ctrl+E", ventana.acc_anadir: "Insert", ventana.acc_chunks: "K",
+        ventana.herramientas["mano"]: "H",
     }
     for accion, tecla in esperados.items():
         assert QKeySequence(tecla) in accion.shortcuts()
+
+
+def test_deslizador_sincronizado(ventana):
+    from figuras_bloques.ui.panel_propiedades import deslizador_desde_tamano, tamano_desde_deslizador
+
+    tamanos = [tamano_desde_deslizador(p) for p in range(1001)]
+    assert tamanos[0] == 1 and tamanos[-1] == 1000 and tamanos == sorted(tamanos)
+    for t in (1, 2, 21, 100, 1000):
+        assert tamano_desde_deslizador(deslizador_desde_tamano(t)) == t
+    ventana.set_seleccion(())
+    ventana.propiedades.spin_tamano.setValue(100)
+    assert ventana.propiedades.deslizador.value() == deslizador_desde_tamano(100)
 
 
 def test_recursos_de_marca(app):
     from figuras_bloques.ui import recursos
 
     assert all(recursos.comprobar().values())
-    for nombre in ("logo.svg", "logo.png", "logo_nombre.svg", "logo_nombre.png", "icono.svg", "icono.ico"):
-        assert (recursos.MARCA / nombre).is_file()
     datos = recursos.ICONO_APP.read_bytes()
     _, tipo, cantidad = struct.unpack("<HHH", datos[:6])
-    lados = {struct.unpack("<B", datos[6 + 16 * i : 7 + 16 * i])[0] or 256 for i in range(cantidad)}
-    assert tipo == 1 and {16, 24, 32, 48, 256} <= lados
+    lados = {struct.unpack("<B", datos[6 + 16 * i: 7 + 16 * i])[0] or 256 for i in range(cantidad)}
+    assert tipo == 1 and {16, 32, 256} <= lados
+    for nombre in ("seleccionar", "mano", "chunks", "fusionar", "agrupar", "deshacer", "alinear_centro_x"):
+        assert not recursos.icono(nombre).isNull()
 
 
 def test_recursos_desde_otro_directorio(tmp_path):

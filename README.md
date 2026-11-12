@@ -2,10 +2,10 @@
 
 # Hexabloq
 
-**Figuras con bloques, fila a fila.** Aplicación de escritorio para Windows que genera **círculos, triángulos equiláteros y hexágonos regulares** hechos con bloques cuadrados, como plantilla para construir en Minecraft u otros juegos de bloques. Cada celda de la cuadrícula es un bloque completo: sin suavizado ni bloques parciales.
+**Figuras con bloques, fila a fila.** Aplicación de escritorio para Windows para planificar construcciones de Minecraft sobre **chunks reales de 16 × 16**. Permite combinar **círculos, triángulos equiláteros y hexágonos regulares** hechos con bloques cuadrados: colocar varias figuras, agruparlas, fusionarlas en estructuras compuestas y obtener la guía de construcción por filas y por chunk. Cada celda de la cuadrícula es un bloque completo, sin suavizado ni bloques parciales.
 
 - Programa con ventana propia (Python + PySide6). No usa navegador, servidor ni conexión a internet.
-- El conteo, el dibujo, la guía por filas, el PNG y el JSON salen **del mismo conjunto de bloques**.
+- La cuadrícula, el conteo, la guía, el PNG y el JSON salen **del mismo conjunto final de bloques**.
 
 ---
 
@@ -87,62 +87,124 @@ También puedes hacer doble clic en `ejecutar.bat`, que hace lo mismo.
 
 ---
 
+## Mundo, chunks y coordenadas
+
+La cuadrícula representa el mundo **visto desde arriba**, como un mapa de Minecraft:
+
+- **X** crece hacia el este (derecha) y **Z** hacia el sur (abajo). Cada celda es un bloque.
+- Los **chunks** miden exactamente **16 × 16 bloques** y están anclados al mundo, no a las figuras. 16 × 16 es el tamaño de cada chunk, no el límite del lienzo: una construcción puede ocupar todos los chunks que haga falta.
+- El chunk (0, 0) contiene los bloques X 0…15 y Z 0…15.
+- Para las coordenadas negativas se usa la división hacia menos infinito. El bloque X = −1 pertenece al chunk −1 y su posición local es 15; el bloque X = 16 abre el chunk 1 con posición local 0. Es la misma regla que usa Minecraft, así que coincide con lo que muestra la pantalla F3.
+
+En la cuadrícula:
+
+| Elemento | Aspecto |
+|---|---|
+| Líneas entre bloques | finas y discretas; se ocultan al alejar la vista |
+| Límites de chunk | más visibles; al alejar mucho se dibujan cada 2, 4… chunks para no saturar |
+| Ejes del mundo | X = 0 en rojo, Z = 0 en azul, con un círculo en el origen (0, 0) |
+| Coordenadas | reglas en los bordes con X y Z (los límites de chunk, en negrita) y la etiqueta de cada chunk cuando hay espacio |
+
+Cada una de estas ayudas se activa por separado desde la barra de la cuadrícula. Ninguna cuenta como bloque.
+
+Al pasar el cursor, la barra de estado muestra las coordenadas globales, el chunk y la posición local, por ejemplo `X -1 · Z 16 · chunk (-1, 1) · local (15, 0)`, y la figura que hay debajo.
+
+---
+
 ## Uso
 
 | Zona | Qué hace |
 |---|---|
-| **Barra superior** | Logo, nombre y diseño actual (indica si hay cambios sin guardar). Acciones *Nuevo*, *Abrir*, *Guardar* y *Exportar PNG*. A la derecha, *Guía* muestra u oculta el panel de construcción, y **?** da acceso a la ayuda, los atajos, *Guardar como* y la información de la app. |
-| **Panel izquierdo** | Selector de figura (el hexágono va primero), tamaño con campo numérico y deslizador sincronizados, orientación (solo en las figuras que la tienen), proporciones calculadas, contorno o relleno, y color. Cualquier cambio se aplica al instante. |
-| **Cuadrícula central** | La figura, centrada al iniciar. Sobre ella, una barra con zoom, *Ajustar*, *Centrar* e interruptores de cuadrícula, ejes, marca del centro, numeración, fondo claro u oscuro y *Auto-ajuste*. Si falta espacio, la barra muestra solo los iconos. Rueda del ratón: zoom. Arrastrar: mover la vista. Clic: resaltar una fila. |
-| **Construcción (derecha)** | Ancho, alto y bloques necesarios; centro y lado del hexágono; tabla por filas que se puede plegar; botones de fila anterior y siguiente; y *Copiar instrucciones*. El panel se redimensiona arrastrando su borde y se oculta con *Guía* (Ctrl+B). |
-| **Barra de estado** | Columna y fila bajo el cursor (con su distancia al centro), resumen de la figura, nivel de zoom y avisos breves al guardar, copiar o exportar. |
+| **Barra superior** | Nuevo, Abrir, Guardar, Exportar (PNG, instrucciones o copiar), Deshacer y Rehacer. *Panel* muestra u oculta el panel derecho; **?** abre la ayuda, los atajos, *Guardar como* y la información de la app. |
+| **Panel izquierdo (propiedades)** | Sin selección: la **plantilla** de la próxima figura (tipo, tamaño, orientación, modo y color) y *Añadir figura*. Con una figura: sus propiedades, su posición X y Z, el chunk de su esquina, la visibilidad y el bloqueo. Con varias: posición conjunta, color, modo, alineación, *Agrupar* y *Fusionar*. |
+| **Cuadrícula** | Herramientas separadas: **Seleccionar** (V), **Mover vista** (H) y **Añadir** (A). Zoom con la rueda; mover la vista con el botón central o con Espacio + arrastrar. Interruptores de bloques, chunks, coordenadas, ejes, *Ajustar a chunks* y fondo claro. |
+| **Panel derecho, pestaña Objetos** | Lista de figuras y grupos; arriba quedan las que están encima. Iconos para mostrar u ocultar y bloquear o desbloquear; doble clic para renombrar. Botones para duplicar, eliminar, agrupar, desagrupar, fusionar, separar, subir y bajar. |
+| **Panel derecho, pestaña Construcción** | Bloques únicos, dimensiones, chunks ocupados, tabla de bloques por chunk y guía por filas, del diseño completo o de la selección. |
+| **Barra de estado** | Coordenadas bajo el cursor, resumen del diseño y de la selección, zoom y avisos breves. |
 
-**Cambios sin guardar:**
+### Crear y colocar figuras
 
-- El título de la ventana y la barra superior indican cuándo hay cambios sin guardar.
-- Antes de cerrar, abrir otro diseño o empezar uno nuevo, la app pregunta si quieres guardarlos.
-- Cambiar el color o el modo no reinicia el zoom ni el desplazamiento.
+- **Añadir:** *Añadir figura* (o Insert) coloca la plantilla en el centro de la vista. Con la herramienta *Añadir*, una vista previa sigue al cursor y cada clic coloca una figura nueva. Las figuras existentes nunca se reemplazan.
+- **Seleccionar:** clic sobre una figura (dentro de su área, aunque sea de contorno). Mayús suma a la selección, Ctrl alterna, y arrastrar en una zona vacía dibuja una banda de selección. También se puede seleccionar desde la lista de objetos.
+- **Mover:**
+  - Arrastrando con la herramienta *Seleccionar*, siempre a bloques enteros.
+  - Con las flechas: 1 bloque. Con Mayús + flechas: 16 bloques (un chunk).
+  - Escribiendo X y Z en el panel de propiedades.
+  - Con *Ajustar a chunks* activo, la esquina norte-oeste de la selección cae en la esquina de chunk más cercana.
+- **Alinear:** con varias figuras seleccionadas, alinea bordes (oeste, este, norte, sur) o centros con la caja de toda la selección.
+- **Bloquear y ocultar:**
+  - Una figura **bloqueada** no se mueve, no se edita y no se elimina, pero sigue contando en la construcción.
+  - Una figura **oculta** no cuenta ni se exporta.
+- **Selección visible:** la selección se marca con un recuadro discontinuo cian, con tiradores en las esquinas y el centro de la figura. Los grupos se marcan con un recuadro punteado. Nada de esto son bloques y no aparece en las exportaciones.
+- **Deshacer y rehacer** (Ctrl+Z / Ctrl+Y) cubren añadir, mover, editar, duplicar, eliminar, agrupar, fusionar, separar, ocultar, bloquear, renombrar y reordenar. Varios cambios seguidos sobre el mismo campo, o varias pulsaciones de flecha seguidas, se deshacen de una vez.
 
-**Preferencias:** se guardan localmente el tamaño y la posición de la ventana, el ancho de los paneles, las opciones de vista, el fondo del lienzo, la última figura y la carpeta de trabajo.
+### Agrupar y fusionar
 
-**Seguir la construcción paso a paso:** haz clic en una fila del dibujo o de la tabla y avanza con *Anterior* y *Siguiente* o con ↑/↓. La fila se resalta en ámbar en ambos sitios; si está fuera de la vista, el lienzo se desplaza hasta ella.
+Son dos acciones distintas:
 
-**Leer la tabla:** `1 | 9–10` significa que esa fila tiene un bloque en la columna 1 y otro tramo de las columnas 9 a 10, ambas incluidas.
+- **Agrupar** (Ctrl+G) mantiene las figuras independientes, pero se seleccionan y se mueven juntas desde la cuadrícula. Desagrupar (Ctrl+Shift+G) las libera y conserva sus posiciones. En la lista de objetos se puede elegir un solo miembro para editarlo.
+- **Fusionar** (Ctrl+M) sustituye las figuras seleccionadas por una **figura compuesta**. Hay dos modos:
+  - **Conservar los bloques:** unión exacta de los bloques que ocupan ahora las figuras, tal como se ven, contornos internos incluidos.
+  - **Crear silueta conjunta:** une las **áreas rellenas** de las figuras originales y genera el resultado en **relleno** o en **contorno**.
+    - En contorno solo queda el borde de la unión: desaparecen las líneas internas donde las figuras se solapan.
+    - **Huecos interiores:** si la unión encierra zonas vacías (por ejemplo, un anillo de hexágonos), esas zonas **siguen vacías**, tanto en contorno como en relleno, y **su borde forma parte del contorno**.
 
-**Guías de lectura:**
+En ambos modos:
 
-- Las líneas más marcadas de la cuadrícula aparecen cada 5 bloques, contando desde la esquina superior izquierda de la figura.
-- Los ejes y la marca del centro son solo ayudas visuales: **no cuentan como bloques** y nunca se exportan.
-- El zoom y el desplazamiento solo cambian la vista; la figura y su número de bloques no se tocan.
+- **Figuras separadas:** no se inventan bloques ni puentes para unirlas; la compuesta las mantiene separadas.
+- **Bloques compartidos:** ocupan una sola posición y cuentan una sola vez.
+- **Origen editable:** la figura compuesta guarda sus figuras de origen.
+  - En sus propiedades se puede cambiar entre bloques conservados y silueta, y entre contorno y relleno.
+  - *Separar* (Ctrl+Shift+M) devuelve las figuras originales a su posición actual, aunque la compuesta se haya movido.
+- **Anidamiento:** se pueden fusionar figuras que ya son compuestas.
+
+### Conteo y guía de construcción
+
+Todo sale de un único conjunto final de bloques, que se calcula combinando las figuras visibles en orden de apilado. La cuadrícula, los contadores, la guía, el JSON y las exportaciones leen ese mismo conjunto.
+
+- **Bloques únicos:** cada posición cuenta una vez, aunque la ocupen varias figuras.
+- **Color de los bloques compartidos:** es el de la figura que está **más arriba en la lista de objetos** (la última en el orden de apilado). Esta regla se aplica igual en pantalla y al exportar. Para cambiarlo, usa *Subir*, *Bajar*, *Traer al frente* o *Enviar al fondo*.
+- **Chunks ocupados:** tabla con cada chunk, su rango de X y Z y los bloques que necesita. Al hacer clic en un chunk, la vista lo encuadra y la guía muestra solo sus filas.
+- **Guía por filas:** cada fila Z con sus tramos de X en coordenadas globales (por ejemplo, `Z -3: X -9–-7 | 12–30`). Clic en una fila para resaltarla en la cuadrícula; Alt+↑ / Alt+↓ cambia de fila.
+- **Ámbito:** el selector *Calcular para* alterna entre el diseño completo y la selección.
+
+### Guardar, abrir y exportar
+
+- **Guardar** (Ctrl+S) crea un JSON versión 2 con:
+  - todas las figuras, con identificador, nombre, tipo, tamaño, orientación, modo, color, posición, visibilidad, bloqueo y grupo;
+  - el orden de apilado y los grupos;
+  - las figuras compuestas con sus figuras de origen;
+  - el resultado: total, límites, bloques por chunk y la lista `[x, z, color]` de todos los bloques.
+- **Abrir** (Ctrl+O) recalcula el diseño y avisa si los bloques guardados no coinciden. Los **diseños anteriores de una sola figura** (versión 1) se abren como un documento con un objeto en X = 0, Z = 0.
+- **Exportar PNG** (Ctrl+E): el diseño completo o la selección, con cuadrícula, límites de chunks y coordenadas opcionales, y fondo claro, oscuro o transparente. La imagen siempre cubre todo el contenido elegido, sin importar el zoom ni el desplazamiento de la vista, y nunca incluye la selección, el cursor ni los ejes.
+- **Instrucciones** (Ctrl+Shift+E para exportar, Ctrl+Shift+C para copiar), de todo el diseño o de la selección:
+  - **completas**, fila a fila;
+  - **por chunk**, con cada chunk y sus filas en coordenadas globales y locales (0–15), para construir chunk a chunk.
+
+Antes de cerrar, abrir otro diseño o empezar uno nuevo, la app pregunta si quieres guardar los cambios. Se guardan localmente las preferencias de vista, la plantilla, el tamaño de la ventana y el de los paneles.
 
 ### Atajos de teclado
 
 | Teclas | Acción |
 |---|---|
 | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S | Nuevo / abrir / guardar / guardar como |
-| Ctrl+E · Ctrl+Shift+C | Exportar PNG · copiar instrucciones |
-| Ctrl+1 / Ctrl+2 / Ctrl+3 | Hexágono / círculo / triángulo |
-| Ctrl+L · Ctrl+T | Ir al campo de tamaño · alternar contorno y relleno |
-| Ctrl++ / Ctrl+- / Ctrl+0 | Acercar / alejar / ajustar a la ventana |
-| Ctrl+B | Mostrar u ocultar la guía de construcción |
-| F / C | Ajustar / centrar (con el foco en la cuadrícula) |
-| G / X / M / N / B / A | Cuadrícula / ejes / marca del centro / numeración / fondo claro / auto-ajuste (con el foco en la cuadrícula) |
-| ↑ / ↓ · Esc | Fila anterior o siguiente · quitar resaltado |
-| F1 · Ctrl+/ | Ayuda · lista de atajos |
+| Ctrl+E · Ctrl+Shift+E · Ctrl+Shift+C | Exportar PNG · exportar instrucciones · copiar instrucciones |
+| Ctrl+Z · Ctrl+Y | Deshacer · rehacer |
+| Insert | Añadir la plantilla en el centro de la vista |
+| Ctrl+A · Esc | Seleccionar todo · quitar selección (o volver a la herramienta Seleccionar) |
+| Ctrl+D · Supr | Duplicar · eliminar |
+| Ctrl+G · Ctrl+Shift+G | Agrupar · desagrupar |
+| Ctrl+M · Ctrl+Shift+M | Fusionar · separar |
+| Ctrl+] · Ctrl+[ · Ctrl+Shift+] · Ctrl+Shift+[ | Subir · bajar · al frente · al fondo |
+| Flechas · Mayús+flechas | Mover la selección 1 bloque · 16 bloques |
+| V / H / A | Herramienta Seleccionar / Mover vista / Añadir |
+| G / K / N / X / S / B | Bloques / chunks / coordenadas / ejes / ajustar a chunks / fondo claro |
+| F · C · Ctrl+0 | Encuadrar el diseño · centrar en la selección u origen · encuadrar |
+| Ctrl+1 / 2 / 3 · Ctrl+L · Ctrl+T | Tipo de figura · ir al tamaño · contorno o relleno |
+| Alt+↑ / Alt+↓ | Fila anterior o siguiente de la guía |
+| Ctrl+B · F1 · Ctrl+/ | Panel derecho · ayuda · lista de atajos |
 
-Todos los controles se recorren con Tab y muestran un borde verde cuando tienen el foco. La cuadrícula también lo muestra.
-
-### Exportar y guardar
-
-- **Exportar PNG** (Ctrl+E): elige los píxeles por bloque, el fondo (claro, oscuro o transparente) y si quieres incluir la cuadrícula y la numeración. La imagen nunca lleva ejes ni marca del centro.
-- **Guardar diseño** (Ctrl+S): crea un JSON con la configuración, las dimensiones, el centro, la tabla por filas y las coordenadas `[x, y]` de **todos** los bloques, numeradas desde 1 (columna 1 = izquierda, fila 1 = arriba).
-- **Abrir diseño** (Ctrl+O): recalcula la figura a partir de la configuración y comprueba que coincide con los bloques guardados. Si no coinciden, avisa.
-
-Los tamaños válidos van de 1 a 1000 bloques. Si escribes un valor fuera de ese rango:
-
-- el campo se marca en rojo;
-- un mensaje explica cómo corregirlo;
-- se desactivan la exportación y el guardado.
+Las teclas de una sola letra funcionan cuando el foco está en la cuadrícula o en su barra, para no interferir al escribir en los campos.
 
 ---
 
@@ -197,56 +259,73 @@ Un hexágono o un círculo regulares no se pueden formar exactamente con cuadrad
 ```
 main.py                         Punto de entrada
 figuras_bloques/
-  geometria.py                  Algoritmos (sin Qt): Configuracion → Figura (filas de tramos)
-  guia.py                       Guía por filas, resumen y texto para copiar
-  archivo.py                    Guardar y abrir JSON
+  geometria.py                  Algoritmos de cada figura (sin Qt): Configuracion → Figura
+  intervalos.py                 Operaciones de filas de bloques como intervalos (unión, resta, contorno)
+  chunks.py                     Chunks de 16 × 16 anclados al mundo
+  documento.py                  Modelo: objetos, grupos, figuras compuestas y su forma
+  operaciones.py                Edición pura del documento: añadir, mover, fusionar, alinear…
+  historial.py                  Deshacer y rehacer con instantáneas inmutables
+  construccion.py               Conjunto final de bloques, conteo por chunk e instrucciones
+  archivo.py                    JSON versión 2 (y lectura de la versión 1)
+  guia.py                       Utilidades de texto y guía de una sola figura
   app.py                        Arranque, icono en la barra de tareas y --comprobar-recursos
-  recursos/marca/               Logo e icono (SVG, PNG, ICO)
-  recursos/iconos/              Iconos de interfaz (SVG) y marca de las casillas
-  ui/tema.py                    Identidad: paleta, tipografía, hoja de estilos y paletas del lienzo
-  ui/recursos.py                Carga de logo, iconos y miniaturas de figuras
-  ui/ventana.py                 Ventana principal: barras, acciones, archivos y preferencias
-  ui/panel_config.py            Panel de parámetros de la figura
-  ui/panel_guia.py              Panel de construcción y tabla por filas
-  ui/lienzo.py                  Cuadrícula interactiva (zoom, desplazamiento, fila resaltada)
-  ui/render.py                  Dibujo compartido por el lienzo y el PNG
-  ui/exportar.py                Exportación PNG
-  ui/dialogos.py                Ayuda, atajos, información y confirmación de cambios
-tests/                          Pruebas (pytest)
-tools/generar_identidad.py      Regenera la identidad vectorial, variantes, ICO y vista previa
+  recursos/                     Logo, icono e iconos de interfaz
+  ui/ventana.py                 Coordinación: documento, historial, selección, archivos y preferencias
+  ui/lienzo.py                  Cuadrícula interactiva: herramientas, selección y arrastre
+  ui/render.py                  Dibujo del mundo (compartido con el PNG) y ayudas de edición
+  ui/panel_propiedades.py       Plantilla y propiedades de la selección
+  ui/panel_objetos.py           Lista de objetos y grupos
+  ui/panel_construccion.py      Conteo, chunks y guía por filas
+  ui/exportar.py                PNG e instrucciones, independientes de la vista
+  ui/dialogos.py                Ayuda, atajos, fusión y confirmaciones
+  ui/barra.py · tema.py · recursos.py   Barra adaptable, estilo y carga de recursos
+tests/                          Pruebas (pytest) y diseños de la versión 1 para compatibilidad
+tools/generar_identidad.py      Regenera logo, icono e ICO
 empaquetado/version_info.txt    Datos de versión del ejecutable
 Hexabloq.spec                   Configuración de PyInstaller
-construir_exe.bat               Genera dist\Hexabloq.exe
-ejecutar.bat                    Ejecuta desde el código fuente
+construir_exe.bat · ejecutar.bat
 ```
 
-Los estilos y recursos visuales están separados de los cálculos: `geometria.py`, `guia.py` y `archivo.py` no dependen de Qt.
+El modelo (`documento`, `operaciones`, `historial`), las operaciones geométricas (`geometria`, `intervalos`, `chunks`, `construccion`) y la representación (`ui/`) están separados. Ninguno de los módulos del modelo ni de la geometría depende de Qt.
 
 ## Qué comprueban las pruebas
 
-- **Hexágonos:**
-  - Tamaños de 1 a 80 y también 99, 100, 127, 128, 255, 256, 499, 500, 999 y 1000; ambas orientaciones y ambos modos.
-  - El ancho es exacto y el alto queda a 0,6 bloques o menos del teórico.
-  - Hay simetría de izquierda a derecha y de arriba abajo, y el centro está donde debe.
-  - La forma es convexa y los bordes inclinados avanzan 0–1 o 1–2 bloques por fila.
-  - Los lados verticales son consecutivos y están centrados.
-  - El borde sigue la recta real con menos de un bloque de error.
-  - El contorno coincide con una comprobación por fuerza bruta, es una sola pieza continua, cierra el interior y no tiene nunca un grupo de 2×2 bloques.
-- **Círculos y triángulos:** dimensiones, simetrías, continuidad del contorno y equivalencia entre las cuatro orientaciones del triángulo.
-- **En todas las figuras:**
-  - No hay coordenadas duplicadas.
-  - El total coincide con la suma por filas, con la guía, con el JSON y con los bloques que aparecen en el PNG, con cualquier fondo.
-  - El resultado es el mismo en cada ejecución.
-  - Los tamaños no válidos dan un mensaje claro.
-- **Interfaz** (sin mostrar la ventana):
-  - El zoom y el desplazamiento no cambian la figura.
-  - Cambiar el color o el modo no reinicia la vista.
-  - El deslizador y el campo de tamaño están sincronizados.
-  - Solo se muestran los parámetros de la figura elegida.
-  - Los errores de tamaño explican cómo corregirlos.
-  - La fila seleccionada está sincronizada entre el dibujo y la tabla.
-  - Las coordenadas bajo el cursor y el zoom aparecen en la barra de estado.
-  - Abrir, guardar y la confirmación de cambios sin guardar funcionan.
-  - Las preferencias persisten entre sesiones.
-  - Los atajos principales existen.
-- **Recursos:** el logo, los iconos y el ICO (con varias resoluciones) cargan, también al ejecutar la app desde otro directorio.
+- **Figuras:**
+  - Hexágonos de todos los tamaños de 1 a 80 y de 99 a 1000, en ambas orientaciones y modos: ancho exacto, alto teórico, simetrías, convexidad, pendiente de los bordes, y contorno continuo y sin grosores de 2×2.
+  - Círculos y triángulos: dimensiones, simetrías y orientaciones equivalentes.
+- **Chunks:**
+  - Límites en 15/16, −1/0, −16/−17 y −32/−33.
+  - Reparto de tramos sin pérdidas y figuras que atraviesan decenas de chunks.
+- **Construcción:**
+  - Solapamientos sin doble conteo.
+  - Color de la figura superior en los bloques compartidos.
+  - Figuras ocultas excluidas y bloqueadas incluidas.
+  - La guía y las instrucciones por chunk coinciden con los bloques.
+- **Fusión:**
+  - La silueta conjunta no tiene líneas internas y es la unión de las áreas.
+  - Los huecos se conservan vacíos con su borde.
+  - Las figuras separadas no se conectan.
+  - La fusión de bloques conserva las celdas.
+  - La fusión anidada funciona.
+  - Separar restaura los orígenes movidos.
+- **Operaciones:**
+  - Identificadores únicos.
+  - Grupos que se mueven conservando las posiciones relativas.
+  - Bloqueo, duplicado de grupos, alineación, orden y ajuste a chunks.
+- **Historial:** deshacer y rehacer todas las operaciones, y unión de ediciones consecutivas.
+- **Archivos:**
+  - Guardado y reapertura de diseños compuestos, con grupos, ocultos y bloqueados.
+  - Apertura de diseños reales guardados con la versión anterior.
+  - Avisos ante bloques alterados y errores claros ante archivos mal formados.
+- **Interfaz** (sin mostrar ventanas):
+  - Añadir sin reemplazar.
+  - Selección desde el lienzo y desde el panel.
+  - Arrastre con vista previa y deshacer.
+  - Flechas con y sin Mayús, y ajuste a chunks.
+  - Agrupar, fusionar y separar.
+  - Edición y validación de propiedades, y parámetros visibles según la figura.
+  - Panel de construcción por ámbito.
+  - El PNG contiene exactamente los bloques y colores, con cualquier fondo.
+  - Cambios sin guardar y preferencias.
+  - Atajos.
+  - Recursos cargados desde otro directorio.

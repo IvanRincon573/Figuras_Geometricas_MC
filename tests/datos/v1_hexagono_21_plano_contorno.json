@@ -1,0 +1,49 @@
+{
+  "formato": "figuras-bloques",
+  "version": 1,
+  "configuracion": {
+    "figura": "hexagono",
+    "tamano": 21,
+    "orientacion": "plano",
+    "modo": "contorno",
+    "color": "#5B8C3A"
+  },
+  "coordenadas": "Cada bloque es [x, y]: x = columna (1 = izquierda), y = fila (1 = arriba). Los tramos incluyen ambos extremos.",
+  "dimensiones": {
+    "ancho": 21,
+    "alto": 18,
+    "ancho_teorico": 21.0,
+    "alto_teorico": 18.186533,
+    "total_bloques": 54
+  },
+  "centro": {
+    "x": 11.0,
+    "y": 9.5
+  },
+  "filas": [
+    {"fila": 1, "bloques": 11, "tramos": [[6, 16]]},
+    {"fila": 2, "bloques": 2, "tramos": [[5, 5], [17, 17]]},
+    {"fila": 3, "bloques": 2, "tramos": [[5, 5], [17, 17]]},
+    {"fila": 4, "bloques": 2, "tramos": [[4, 4], [18, 18]]},
+    {"fila": 5, "bloques": 2, "tramos": [[4, 4], [18, 18]]},
+    {"fila": 6, "bloques": 2, "tramos": [[3, 3], [19, 19]]},
+    {"fila": 7, "bloques": 2, "tramos": [[2, 2], [20, 20]]},
+    {"fila": 8, "bloques": 2, "tramos": [[2, 2], [20, 20]]},
+    {"fila": 9, "bloques": 2, "tramos": [[1, 1], [21, 21]]},
+    {"fila": 10, "bloques": 2, "tramos": [[1, 1], [21, 21]]},
+    {"fila": 11, "bloques": 2, "tramos": [[2, 2], [20, 20]]},
+    {"fila": 12, "bloques": 2, "tramos": [[2, 2], [20, 20]]},
+    {"fila": 13, "bloques": 2, "tramos": [[3, 3], [19, 19]]},
+    {"fila": 14, "bloques": 2, "tramos": [[4, 4], [18, 18]]},
+    {"fila": 15, "bloques": 2, "tramos": [[4, 4], [18, 18]]},
+    {"fila": 16, "bloques": 2, "tramos": [[5, 5], [17, 17]]},
+    {"fila": 17, "bloques": 2, "tramos": [[5, 5], [17, 17]]},
+    {"fila": 18, "bloques": 11, "tramos": [[6, 16]]}
+  ],
+  "bloques": [
+    [6, 1], [7, 1], [8, 1], [9, 1], [10, 1], [11, 1], [12, 1], [13, 1], [14, 1], [15, 1], [16, 1], [5, 2], [17, 2], [5, 3], [17, 3], [4, 4],
+    [18, 4], [4, 5], [18, 5], [3, 6], [19, 6], [2, 7], [20, 7], [2, 8], [20, 8], [1, 9], [21, 9], [1, 10], [21, 10], [2, 11], [20, 11], [2, 12],
+    [20, 12], [3, 13], [19, 13], [4, 14], [18, 14], [4, 15], [18, 15], [5, 16], [17, 16], [5, 17], [17, 17], [6, 18], [7, 18], [8, 18], [9, 18], [10, 18],
+    [11, 18], [12, 18], [13, 18], [14, 18], [15, 18], [16, 18]
+  ]
+}
